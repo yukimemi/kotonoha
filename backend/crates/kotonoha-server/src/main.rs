@@ -23,7 +23,11 @@ mod ws;
 #[command(name = "kotonoha-server", version, about)]
 struct Cli {
     /// Path to kotonoha.toml.
-    #[arg(long, env = "KOTONOHA_CONFIG", default_value = "./configs/kotonoha.toml")]
+    #[arg(
+        long,
+        env = "KOTONOHA_CONFIG",
+        default_value = "./configs/kotonoha.toml"
+    )]
     config: PathBuf,
 }
 
@@ -61,8 +65,8 @@ async fn main() -> anyhow::Result<()> {
 
     let app = Router::new()
         .route("/api/info", get(info))
-        .route("/api/tts",  post(tts))
-        .route("/ws/chat",  get(ws::ws_handler))
+        .route("/api/tts", post(tts))
+        .route("/ws/chat", get(ws::ws_handler))
         .nest_service("/avatars", ServeDir::new(&avatars_dir))
         .with_state(state)
         .layer(cors)
@@ -70,7 +74,10 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!(
         "kotonoha-server listening on http://{bind}, avatars from {}",
-        avatars_dir.canonicalize().unwrap_or_else(|_| avatars_dir.clone()).display()
+        avatars_dir
+            .canonicalize()
+            .unwrap_or_else(|_| avatars_dir.clone())
+            .display()
     );
     let listener = tokio::net::TcpListener::bind(bind).await?;
     axum::serve(listener, app).await?;
@@ -82,11 +89,17 @@ async fn info(State(state): State<AppState>) -> axum::Json<serde_json::Value> {
     let backends: Vec<&str> = state.config.backend.keys().map(String::as_str).collect();
     let lessons: Vec<&str> = state.config.lesson.keys().map(String::as_str).collect();
     let avatars: Vec<String> = list_avatars(&state.config.avatars_dir());
-    let kokoro_voices: Vec<String> = state.config.voice.kokoro
+    let kokoro_voices: Vec<String> = state
+        .config
+        .voice
+        .kokoro
         .as_ref()
         .map(|k| list_voice_bins(std::path::Path::new(&k.voices_dir)))
         .unwrap_or_default();
-    let kokoro_default = state.config.voice.kokoro
+    let kokoro_default = state
+        .config
+        .voice
+        .kokoro
         .as_ref()
         .map(|k| k.default_voice.clone());
 
@@ -121,25 +134,32 @@ async fn tts(
     State(state): State<AppState>,
     axum::Json(req): axum::Json<TtsRequest>,
 ) -> Result<Response, (StatusCode, String)> {
-    let kokoro_cfg = state
-        .config
-        .voice
-        .kokoro
-        .as_ref()
-        .ok_or((StatusCode::SERVICE_UNAVAILABLE, "kokoro not configured".into()))?;
+    let kokoro_cfg = state.config.voice.kokoro.as_ref().ok_or((
+        StatusCode::SERVICE_UNAVAILABLE,
+        "kokoro not configured".into(),
+    ))?;
 
     // First request initializes; subsequent requests reuse the warm engine.
-    let tts = state.tts
+    let tts = state
+        .tts
         .get_or_try_init(|| async {
             Tts::load(&kotonoha_tts::TtsConfig {
                 model_path: kokoro_cfg.model_path.clone().into(),
                 voices_dir: kokoro_cfg.voices_dir.clone().into(),
-            }).await
+            })
+            .await
         })
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("tts init: {e:#}")))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("tts init: {e:#}"),
+            )
+        })?;
 
-    let voice = req.voice.unwrap_or_else(|| kokoro_cfg.default_voice.clone());
+    let voice = req
+        .voice
+        .unwrap_or_else(|| kokoro_cfg.default_voice.clone());
     let speed = req.speed.unwrap_or(kokoro_cfg.speed);
     let wav = tts
         .synthesize_wav(&req.text, &voice, speed)
@@ -150,7 +170,9 @@ async fn tts(
 }
 
 fn list_voice_bins(dir: &std::path::Path) -> Vec<String> {
-    let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new(); };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
     let mut out: Vec<String> = entries
         .flatten()
         .filter_map(|e| {

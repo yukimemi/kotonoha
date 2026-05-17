@@ -4,17 +4,20 @@ use axum::response::IntoResponse;
 use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 
-use kotonoha_core::{
-    Backend, BackendConfig, CliBackend, CompletionRequest, Lesson, Session,
-};
+use kotonoha_core::{Backend, BackendConfig, CliBackend, CompletionRequest, Lesson, Session};
 
 use crate::AppState;
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum ClientMsg {
-    Configure { backend: Option<String>, lesson: Option<String> },
-    User { text: String },
+    Configure {
+        backend: Option<String>,
+        lesson: Option<String>,
+    },
+    User {
+        text: String,
+    },
     Reset,
 }
 
@@ -71,7 +74,10 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
         };
 
         match msg {
-            ClientMsg::Configure { backend, lesson: lesson_opt } => {
+            ClientMsg::Configure {
+                backend,
+                lesson: lesson_opt,
+            } => {
                 if let Some(b) = backend {
                     if cfg.backend.contains_key(&b) {
                         backend_name = b;
@@ -109,7 +115,8 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
             }
             ClientMsg::User { text } => {
                 session.push_student(&text);
-                if let Err(e) = run_turn(&cfg, &backend_name, &lesson, &mut session, &mut tx).await {
+                if let Err(e) = run_turn(&cfg, &backend_name, &lesson, &mut session, &mut tx).await
+                {
                     let _ = send_err(&mut tx, format!("{e:#}")).await;
                 }
             }

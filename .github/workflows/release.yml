@@ -35,6 +35,11 @@ jobs:
   # latency for a release, buys the invariant "if it's on crates.io,
   # every supported OS could build it."
   build-artifacts:
+    # Tag-only — `workflow_dispatch` from a non-tag branch must not
+    # upload binaries against an arbitrary commit nor short-circuit
+    # the gating contract `publish-crates` relies on.  Per CodeRabbit
+    # PR #6 review.
+    if: startsWith(github.ref, 'refs/tags/v')
     strategy:
       fail-fast: false
       matrix:
@@ -95,6 +100,10 @@ jobs:
   # propagate before the next crate's `cargo publish --verify`
   # tries to resolve the newly-uploaded version.
   publish-crates:
+    # Tag-only — see build-artifacts above.  `needs:` already chains
+    # the dependency, but the explicit `if` makes the intent clear and
+    # protects against future workflow_dispatch reshapes.
+    if: startsWith(github.ref, 'refs/tags/v')
     needs: build-artifacts
     runs-on: windows-latest
     timeout-minutes: 30
