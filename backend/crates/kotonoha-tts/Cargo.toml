@@ -1,0 +1,24 @@
+[package]
+name        = "kotonoha-tts"
+description = "Kokoro TTS adapter for kotonoha — wraps `kokoro-en` (pure-Rust, no espeak) and exposes WAV-bytes synthesis"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+homepage.workspace     = true
+authors.workspace      = true
+
+[dependencies]
+anyhow      = { workspace = true }
+hound       = { workspace = true }
+serde       = { workspace = true }
+tokio       = { workspace = true }
+tracing     = { workspace = true }
+
+# Kokoro 82M ONNX inference, pure-Rust phonemizer (misaki-lean).
+# Skip the espeak-ng C++ build path — that path requires CMake + MSVC
+# on Windows and adds a 60s+ build, plus the runtime depends on a
+# native DLL.  `misaki-lean` uses a Rust-only G2P that's good enough
+# for an English-speaking-with-occasional-Japanese teacher scenario.
+kokoro-en = { version = "0.1", default-features = false, features = ["misaki-lean"] }

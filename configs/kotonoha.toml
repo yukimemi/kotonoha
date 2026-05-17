@@ -1,0 +1,110 @@
+# kotonoha — top-level config.
+#
+# Uses teravars: `[vars]` self-references resolve via Tera. The
+# server loads this file, runs `extract_vars` + `resolve`, then
+# merges the selected `[lesson.*]` block on top.
+#
+# Switch backend/lesson with CLI flags (see `--help`) or by editing
+# `default_backend` / `default_lesson` below.
+
+[vars]
+default_backend = "gemini-flash"
+default_lesson  = "elementary-low"
+default_avatar  = "miku.vrm"
+server_bind     = "0.0.0.0:7400"
+
+[server]
+bind = "{{ vars.server_bind }}"
+# Allow the Vite dev server (5173) + LAN access from phones on the
+# same Tailscale / Wi-Fi. Tighten in production.
+cors_allow_origins = ["*"]
+
+[avatars]
+dir            = "./avatars"
+default        = "{{ vars.default_avatar }}"
+
+[voice]
+# stt: "browser" (Web Speech API) — only viable cross-platform
+#      option without a paid service. Future: "whisper-local".
+# tts: "browser" → speechSynthesis (zero-setup, generic voice)
+#      "kokoro"  → Kokoro 82M ONNX locally (run `bun run setup:tts` first)
+stt = "browser"
+tts = "kokoro"
+
+# Used when tts = "kokoro".  Paths are relative to the directory you
+# launch the server from (project root).
+#
+# Default voice = `jf_alpha` — Japanese female that pronounces English
+# with a Japanese accent, which fits the "Japanese English teacher"
+# persona much better than a native American voice (kids hear it as a
+# familiar 先生 rather than a foreign speaker).
+[voice.kokoro]
+model_path    = "./models/kokoro/model.onnx"
+voices_dir    = "./models/kokoro/voices"
+default_voice = "jf_alpha"
+speed         = 1.0
+
+# ---- backends -------------------------------------------------------
+#
+# Each backend is a CLI command the server spawns per turn.  stdin
+# receives the rendered prompt (system + history + user turn); stdout
+# is streamed back over the WebSocket.
+#
+# `claude` defaults to `--print` (single-shot, plain text on stdout).
+# For multi-turn we re-send the rolling transcript each call — keeps
+# the adapter stateless and works identically for gemini / codex.
+
+# Each CLI takes the prompt on stdin (`-` means "read from stdin").
+# Pattern lifted from yukimemi/rvpm `src/ai/mod.rs::invoke_oneshot`,
+# which battle-tested all three across versions of each tool.
+
+[backend.claude]
+cmd  = "claude"
+args = ["-p", "-"]
+
+[backend.gemini]
+cmd  = "gemini"
+args = ["-p", "-"]
+
+[backend.codex]
+cmd  = "codex"
+args = ["exec", "-"]
+
+# ---- API direct backends ------------------------------------------
+#
+# These skip the CLI subprocess entirely and stream from the provider's
+# HTTP API.  Trade-offs vs CLI:
+#   ✓ no 2-5s Node.js cold-start per turn
+#   ✓ token-by-token streaming for natural-feeling teacher response
+#   ✓ Gemini Flash is currently in a free tier suitable for solo practice
+#   ✗ requires an API key in an env var (not the CLI's OAuth login)
+#
+# Get a free Gemini key: https://aistudio.google.com/apikey
+# Then set GEMINI_API_KEY in your shell before launching the server.
+
+[backend.gemini-flash]
+provider     = "google"
+model        = "gemini-2.5-flash"
+api_key_env  = "GEMINI_API_KEY"
+temperature  = 0.7
+
+[backend.gemini-pro]
+provider     = "google"
+model        = "gemini-2.5-pro"
+api_key_env  = "GEMINI_API_KEY"
+temperature  = 0.7
+
+# ---- lessons -------------------------------------------------------
+#
+# `extends` pulls in a file under configs/lessons/.  The server reads
+# the lesson file, merges its `[vars]` over kotonoha.toml's `[vars]`,
+# then renders `system_prompt`.
+
+[lesson.elementary-low]
+extends = "lessons/elementary-low.toml"
+
+[lesson.elementary-high]
+extends = "lessons/elementary-high.toml"
+
+[lesson.junior-high]
+extends = "lessons/junior-high.toml"

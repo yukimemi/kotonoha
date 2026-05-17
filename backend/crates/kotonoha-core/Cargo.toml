@@ -1,0 +1,29 @@
+[package]
+name        = "kotonoha-core"
+description = "Config, lesson loader, and CLI backend adapter for kotonoha"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+homepage.workspace     = true
+authors.workspace      = true
+
+[[example]]
+name = "dump-lesson"
+path = "examples/dump-lesson.rs"
+
+[dependencies]
+anyhow       = { workspace = true }
+async-stream = { workspace = true }
+async-trait  = { workspace = true }
+futures      = { workspace = true }
+serde        = { workspace = true }
+serde_json   = { workspace = true }
+teravars     = { workspace = true }
+thiserror    = { workspace = true }
+tokio        = { workspace = true }
+tokio-util   = { workspace = true }
+toml         = { workspace = true }
+tracing      = { workspace = true }
+which        = { workspace = true }

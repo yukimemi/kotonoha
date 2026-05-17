@@ -1,0 +1,12 @@
+{
+  "name": "kotonoha",
+  "private": true,
+  "workspaces": ["frontend"],
+  "scripts": {
+    "_comment": "`bun --filter` swallows stdout on Windows in some versions — use explicit cd && bun for reliable Vite output.",
+    "dev": "cd frontend && bun run dev",
+    "build": "cd frontend && bun run build",
+    "preview": "cd frontend && bun run preview",
+    "setup:tts": "bun run scripts/setup-tts.ts"
+  }
+}

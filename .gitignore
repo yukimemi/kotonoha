@@ -1,0 +1,39 @@
+/target
+**/target
+**/node_modules
+**/dist
+pnpm-lock.yaml.bak
+
+# Kokoro TTS model + voice files — too large to commit (model alone is 100-325 MB).
+# Run `bun run setup:tts` to populate.
+/models
+
+# TypeScript incremental build cache.
+*.tsbuildinfo
+.env
+.env.local
+*.log
+.DS_Store
+
+# VRM avatars and VRMA animations are ignored by default — drop your
+# own under avatars/ and reference them from configs/kotonoha.toml.
+# Avoid committing licensed model / animation files unless the
+# license explicitly allows redistribution.
+/avatars/*.vrm
+/avatars/*.vrma
+!/avatars/.gitkeep
+# kata:gitignore:base:begin
+# Editor / OS noise — kata-managed (yukimemi/pj-base).
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# APM dependencies — install output of apm.yml's deps.
+# Skill files under .agents/, .claude/, .gemini/ etc. are
+# committed (kata seeds them; renri post_create refreshes via
+# `apm install --update`); the apm_modules/ source cache is not.
+apm_modules/
+# kata:gitignore:base:end

@@ -1,0 +1,23 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root {
+  /* Avoid iOS Safari's URL bar making 100vh too tall — dvh tracks the
+     visible viewport. Fallback to 100% on older browsers. */
+  height: 100%;
+  background: #FDF7EE;
+}
+
+#root {
+  height: 100dvh;
+}
+
+body {
+  font-family: theme("fontFamily.ja");
+  color: theme("colors.kotonoha.ink");
+  -webkit-tap-highlight-color: transparent;
+  /* Prevent pinch-zoom on the 3D canvas while still allowing the
+     page-level zoom set via the meta viewport. */
+  overscroll-behavior: none;
+}
