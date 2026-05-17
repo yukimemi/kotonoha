@@ -47,14 +47,24 @@ impl Tts {
         let tts = KokoroTts::new(&cfg.model_path, &cfg.voices_dir)
             .await
             .context("KokoroTts::new")?;
-        Ok(Self { inner: Arc::new(tts) })
+        Ok(Self {
+            inner: Arc::new(tts),
+        })
     }
 
     /// Synthesize `text` with the given voice id (e.g. `"af_heart"`)
     /// and return a self-contained WAV byte blob (16-bit PCM, 24kHz).
-    pub async fn synthesize_wav(&self, text: &str, voice: &str, speed: f32) -> anyhow::Result<Vec<u8>> {
+    pub async fn synthesize_wav(
+        &self,
+        text: &str,
+        voice: &str,
+        speed: f32,
+    ) -> anyhow::Result<Vec<u8>> {
         let voice = Voice::new(voice).with_speed(speed);
-        let (samples, took) = self.inner.synth(text, voice).await
+        let (samples, took) = self
+            .inner
+            .synth(text, voice)
+            .await
             .map_err(|e| anyhow::anyhow!("kokoro synth: {e}"))?;
         tracing::debug!("kokoro synthesized {} samples in {:?}", samples.len(), took);
         f32_samples_to_wav(&samples, SAMPLE_RATE)
@@ -63,7 +73,10 @@ impl Tts {
 
 fn ensure_path(p: &Path, what: &str) -> anyhow::Result<()> {
     if !p.exists() {
-        anyhow::bail!("{what} not found at {} — run `bun run setup:tts` to download", p.display());
+        anyhow::bail!(
+            "{what} not found at {} — run `bun run setup:tts` to download",
+            p.display()
+        );
     }
     Ok(())
 }

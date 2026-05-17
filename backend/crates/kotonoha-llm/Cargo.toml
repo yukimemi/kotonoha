@@ -10,7 +10,9 @@ homepage.workspace     = true
 authors.workspace      = true
 
 [dependencies]
-kotonoha-core = { path = "../kotonoha-core" }
+# `path` + `version` so cargo publish keeps the version-pinned dep on
+# the published manifest while local builds still resolve via path.
+kotonoha-core = { path = "../kotonoha-core", version = "0.1.0" }
 
 anyhow       = { workspace = true }
 async-stream = { workspace = true }
