@@ -124,9 +124,10 @@ pub async fn run(config: &Config, args: SetupTtsArgs) -> anyhow::Result<()> {
     // given on the CLI. The config is only consulted to fill in the
     // missing side, and the error message names the specific knob.
     let kokoro = config.voice.kokoro.as_ref();
+    // `args` is owned and the fields aren't used past this point, so
+    // move rather than clone (Gemini PR #30 nit).
     let model_dest = args
         .model
-        .clone()
         .or_else(|| kokoro.map(|k| PathBuf::from(&k.model_path)))
         .ok_or_else(|| {
             anyhow!(
@@ -136,7 +137,6 @@ pub async fn run(config: &Config, args: SetupTtsArgs) -> anyhow::Result<()> {
         })?;
     let voices_dir = args
         .voices_dir
-        .clone()
         .or_else(|| kokoro.map(|k| PathBuf::from(&k.voices_dir)))
         .ok_or_else(|| {
             anyhow!(
@@ -193,14 +193,24 @@ async fn download_if_missing(
     // `.partial` sibling and renaming on success means a successful
     // run can never observe a corrupt `dest`, and a failed run
     // leaves the partial out of the way of the skip check.
-    if !force && dest.exists() {
-        let size = tokio::fs::metadata(dest).await?.len();
-        eprintln!(
-            "✓ already have {} ({:.1} MB)",
-            short(dest),
-            size as f64 / 1024.0 / 1024.0
-        );
-        return Ok(());
+    // `Path::exists` is synchronous blocking I/O — use
+    // `tokio::fs::metadata` so we don't pin a tokio worker thread on
+    // a syscall when a slow filesystem (network mount etc.) responds
+    // late (Gemini PR #30 nit). NotFound short-circuits to download.
+    if !force {
+        match tokio::fs::metadata(dest).await {
+            Ok(meta) => {
+                let size = meta.len();
+                eprintln!(
+                    "✓ already have {} ({:.1} MB)",
+                    short(dest),
+                    size as f64 / 1024.0 / 1024.0
+                );
+                return Ok(());
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => { /* download */ }
+            Err(e) => return Err(e).with_context(|| format!("stat {}", dest.display())),
+        }
     }
     if let Some(parent) = dest.parent() {
         tokio::fs::create_dir_all(parent)
