@@ -8,7 +8,7 @@ use axum::extract::State;
 use axum::http::{Method, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use tokio::sync::OnceCell;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
@@ -17,18 +17,36 @@ use tower_http::trace::TraceLayer;
 use kotonoha_core::Config;
 use kotonoha_tts::Tts;
 
+mod setup_tts;
 mod ws;
 
 #[derive(Debug, Parser)]
-#[command(name = "kotonoha-server", version, about)]
+#[command(name = "kotonoha", version, about)]
 struct Cli {
     /// Path to kotonoha.toml.
     #[arg(
         long,
         env = "KOTONOHA_CONFIG",
-        default_value = "./configs/kotonoha.toml"
+        default_value = "./configs/kotonoha.toml",
+        global = true
     )]
     config: PathBuf,
+
+    #[command(subcommand)]
+    cmd: Option<Cmd>,
+}
+
+#[derive(Debug, Subcommand)]
+enum Cmd {
+    /// Run the server (default when no subcommand is given).
+    Serve,
+    /// Download the Kokoro 82M ONNX model + curated voice files into
+    /// the directories specified by `[voice.kokoro]` in the config.
+    ///
+    /// Equivalent to `bun run scripts/setup-tts.ts` from the source
+    /// tree, but works for users who installed via `cargo install`
+    /// and don't have bun / the repo checked out.
+    SetupTts(setup_tts::SetupTtsArgs),
 }
 
 #[derive(Clone)]
@@ -51,6 +69,14 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let config = Config::load(&cli.config)
         .with_context(|| format!("load config {}", cli.config.display()))?;
+
+    match cli.cmd.unwrap_or(Cmd::Serve) {
+        Cmd::Serve => run_serve(config).await,
+        Cmd::SetupTts(args) => setup_tts::run(&config, args).await,
+    }
+}
+
+async fn run_serve(config: Config) -> anyhow::Result<()> {
     let bind: SocketAddr = config.server.bind.parse()?;
     let avatars_dir = config.avatars_dir();
     let state = AppState {
@@ -83,6 +109,8 @@ async fn main() -> anyhow::Result<()> {
     axum::serve(listener, app).await?;
     Ok(())
 }
+
+// Subcommand impl lives in `setup_tts.rs` for length.
 
 #[axum::debug_handler]
 async fn info(State(state): State<AppState>) -> axum::Json<serde_json::Value> {

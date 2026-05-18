@@ -20,14 +20,15 @@ path = "src/main.rs"
 [dependencies]
 # `path` + `version` so cargo publish keeps the version-pinned dep on
 # the published manifest while local builds still resolve via path.
-kotonoha-core = { path = "../kotonoha-core", version = "0.1.0" }
-kotonoha-llm  = { path = "../kotonoha-llm",  version = "0.1.0" }
-kotonoha-tts  = { path = "../kotonoha-tts",  version = "0.1.0" }
+kotonoha-core = { path = "../kotonoha-core", version = "0.1.1" }
+kotonoha-llm  = { path = "../kotonoha-llm",  version = "0.1.1" }
+kotonoha-tts  = { path = "../kotonoha-tts",  version = "0.1.1" }
 
 anyhow             = { workspace = true }
 axum               = { workspace = true }
 clap               = { workspace = true }
 futures            = { workspace = true }
+reqwest            = { workspace = true }
 serde              = { workspace = true }
 serde_json         = { workspace = true }
 tokio              = { workspace = true }
