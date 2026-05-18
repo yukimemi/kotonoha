@@ -11,8 +11,8 @@
       "dependencies": {
         "@pixiv/three-vrm": "^3.5.3",
         "@pixiv/three-vrm-animation": "^3.5.3",
-        "react": "^19.2.5",
-        "react-dom": "^19.2.5",
+        "react": "^19.2.6",
+        "react-dom": "^19.2.6",
         "three": "^0.171.0",
       },
       "devDependencies": {
