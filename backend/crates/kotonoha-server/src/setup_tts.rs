@@ -1,0 +1,240 @@
+//! `kotonoha setup-tts` — download the Kokoro 82M model + voices.
+//!
+//! This is the Rust port of `scripts/setup-tts.ts` (the bun script
+//! that source-checked-out users have run since v0.1.0). It exists
+//! so users who installed via `cargo install kotonoha-server` —
+//! without bun or the source tree — can also populate the TTS assets
+//! straight from the binary.
+//!
+//! By default the destination paths come from `[voice.kokoro]` in
+//! `configs/kotonoha.toml` so the resulting layout drops straight
+//! into the server's expected locations.
+
+use std::path::{Path, PathBuf};
+
+use anyhow::{Context as _, anyhow};
+use clap::Args;
+use futures::StreamExt;
+use tokio::io::AsyncWriteExt;
+
+use kotonoha_core::Config;
+
+const HF_REPO: &str = "https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX/resolve/main";
+
+/// Curated voice set — same as `scripts/setup-tts.ts` keeps in sync.
+/// Bias: "Japanese English teacher" persona — jf_alpha first, plus a
+/// few `af_*` for variety + `bf_emma` for a British alternative.
+const DEFAULT_VOICES: &[&str] = &[
+    "jf_alpha",
+    "af_heart",
+    "af_bella",
+    "af_nicole",
+    "af_sky",
+    "bf_emma",
+];
+
+/// Full v1.0 voice list (mirrors `scripts/setup-tts.ts`). Used when
+/// `--all-voices` is passed.
+const ALL_VOICES: &[&str] = &[
+    "af_alloy",
+    "af_aoede",
+    "af_bella",
+    "af_heart",
+    "af_jessica",
+    "af_kore",
+    "af_nicole",
+    "af_nova",
+    "af_river",
+    "af_sarah",
+    "af_sky",
+    "am_adam",
+    "am_echo",
+    "am_eric",
+    "am_fenrir",
+    "am_liam",
+    "am_michael",
+    "am_onyx",
+    "am_puck",
+    "am_santa",
+    "bf_alice",
+    "bf_emma",
+    "bf_isabella",
+    "bf_lily",
+    "bm_daniel",
+    "bm_fable",
+    "bm_george",
+    "bm_lewis",
+    "ef_dora",
+    "em_alex",
+    "em_santa",
+    "ff_siwis",
+    "hf_alpha",
+    "hf_beta",
+    "hm_omega",
+    "hm_psi",
+    "if_sara",
+    "im_nicola",
+    "jf_alpha",
+    "jf_gongitsune",
+    "jf_nezumi",
+    "jf_tebukuro",
+    "jm_kumo",
+    "pf_dora",
+    "pm_alex",
+    "pm_santa",
+    "zf_xiaobei",
+    "zf_xiaoni",
+    "zf_xiaoxiao",
+    "zf_xiaoyi",
+    "zm_yunjian",
+    "zm_yunxi",
+    "zm_yunxia",
+    "zm_yunyang",
+];
+
+#[derive(Debug, Args)]
+pub struct SetupTtsArgs {
+    /// Download the full-precision model (~325 MB) instead of the
+    /// default q4f16 quantized variant (~92 MB).
+    #[arg(long)]
+    pub full: bool,
+
+    /// Download all 54 voices instead of the curated 6.
+    #[arg(long)]
+    pub all_voices: bool,
+
+    /// Override the model file destination. Defaults to
+    /// `[voice.kokoro].model_path` from the config.
+    #[arg(long, value_name = "FILE")]
+    pub model: Option<PathBuf>,
+
+    /// Override the voices directory. Defaults to
+    /// `[voice.kokoro].voices_dir` from the config.
+    #[arg(long, value_name = "DIR")]
+    pub voices_dir: Option<PathBuf>,
+
+    /// Re-download files even if they already exist on disk.
+    #[arg(long)]
+    pub force: bool,
+}
+
+pub async fn run(config: &Config, args: SetupTtsArgs) -> anyhow::Result<()> {
+    let kokoro = config.voice.kokoro.as_ref().ok_or_else(|| {
+        anyhow!(
+            "configs/kotonoha.toml has no `[voice.kokoro]` section — \
+             add one with `model_path` and `voices_dir` before running \
+             `kotonoha setup-tts`, or pass `--model` + `--voices-dir`."
+        )
+    })?;
+
+    let model_dest = args
+        .model
+        .clone()
+        .unwrap_or_else(|| PathBuf::from(&kokoro.model_path));
+    let voices_dir = args
+        .voices_dir
+        .clone()
+        .unwrap_or_else(|| PathBuf::from(&kokoro.voices_dir));
+
+    let model_url = if args.full {
+        format!("{HF_REPO}/onnx/model.onnx")
+    } else {
+        format!("{HF_REPO}/onnx/model_q4f16.onnx")
+    };
+
+    let voices: Vec<&str> = if args.all_voices {
+        ALL_VOICES.to_vec()
+    } else {
+        DEFAULT_VOICES.to_vec()
+    };
+
+    eprintln!("model → {}", model_dest.display());
+    eprintln!("voices → {} ({} files)", voices_dir.display(), voices.len());
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(600))
+        .build()?;
+
+    download_if_missing(&client, &model_url, &model_dest, args.force).await?;
+    for v in &voices {
+        let url = format!("{HF_REPO}/voices/{v}.bin");
+        let dest = voices_dir.join(format!("{v}.bin"));
+        download_if_missing(&client, &url, &dest, args.force).await?;
+    }
+
+    eprintln!();
+    eprintln!("Done. Switch the server to Kokoro TTS by setting in configs/kotonoha.toml:");
+    eprintln!("    [voice]");
+    eprintln!("    tts = \"kokoro\"");
+    Ok(())
+}
+
+async fn download_if_missing(
+    client: &reqwest::Client,
+    url: &str,
+    dest: &Path,
+    force: bool,
+) -> anyhow::Result<()> {
+    if !force && dest.exists() {
+        let size = tokio::fs::metadata(dest).await?.len();
+        if size > 1024 {
+            eprintln!(
+                "✓ already have {} ({:.1} MB)",
+                short(dest),
+                size as f64 / 1024.0 / 1024.0
+            );
+            return Ok(());
+        }
+    }
+    if let Some(parent) = dest.parent() {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .with_context(|| format!("create {}", parent.display()))?;
+    }
+    eprintln!("↓ {url}");
+    let resp = client
+        .get(url)
+        .send()
+        .await
+        .with_context(|| format!("GET {url}"))?;
+    if !resp.status().is_success() {
+        anyhow::bail!("HTTP {} for {url}", resp.status());
+    }
+    let total = resp.content_length();
+    let mut stream = resp.bytes_stream();
+    let mut file = tokio::fs::File::create(dest)
+        .await
+        .with_context(|| format!("create {}", dest.display()))?;
+    let mut downloaded: u64 = 0;
+    let mut last_log = std::time::Instant::now();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.context("stream chunk")?;
+        downloaded += chunk.len() as u64;
+        file.write_all(&chunk).await?;
+        // Progress every ~1s so big files don't look hung.
+        if last_log.elapsed().as_millis() > 1000 {
+            let pct = total
+                .map(|t| format!(" / {:.0}%", downloaded as f64 / t as f64 * 100.0))
+                .unwrap_or_default();
+            eprintln!("  {:.1} MB{pct}", downloaded as f64 / 1024.0 / 1024.0);
+            last_log = std::time::Instant::now();
+        }
+    }
+    file.flush().await?;
+    eprintln!(
+        "  saved {} ({:.1} MB)",
+        short(dest),
+        downloaded as f64 / 1024.0 / 1024.0
+    );
+    Ok(())
+}
+
+/// Strip the CWD prefix so the message is readable.
+fn short(p: &Path) -> String {
+    if let Ok(cwd) = std::env::current_dir()
+        && let Ok(rel) = p.strip_prefix(&cwd)
+    {
+        return format!("./{}", rel.display());
+    }
+    p.display().to_string()
+}

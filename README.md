@@ -41,16 +41,17 @@ cargo make frontend-dev
 
 ## Kokoro 音声を使う (オプション)
 
-ブラウザ TTS の声が物足りない時は、ローカルで動く Kokoro 82M に切り替えできます。
+ブラウザ TTS の声が物足りない時は、ローカルで動く Kokoro 82M に切り替えできます。`configs/kotonoha.toml` の `[voice.kokoro]` で指定したパスにモデルとボイスをダウンロード:
 
 ```sh
-# モデル + 厳選ボイス (af_heart 等 6 個) を ./models/kokoro/ にダウンロード
+# cargo install 経由のユーザー (バイナリだけ持ってる人):
+kotonoha setup-tts                      # 量子化モデル (~92 MB) + 厳選 6 ボイス
+kotonoha setup-tts --all-voices         # 全 54 ボイス
+kotonoha setup-tts --full               # フル精度モデル (~325 MB)
+
+# repo を clone した dev 向け (bun 必要、機能は完全等価):
 bun run setup:tts
-
-# 全ボイス (50+) が欲しければ
 bun run setup:tts -- --all-voices
-
-# フル精度モデル (325 MB、デフォは量子化 92 MB)
 bun run setup:tts -- --full
 ```
 
