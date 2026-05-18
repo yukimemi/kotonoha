@@ -119,22 +119,31 @@ pub struct SetupTtsArgs {
 }
 
 pub async fn run(config: &Config, args: SetupTtsArgs) -> anyhow::Result<()> {
-    let kokoro = config.voice.kokoro.as_ref().ok_or_else(|| {
-        anyhow!(
-            "configs/kotonoha.toml has no `[voice.kokoro]` section — \
-             add one with `model_path` and `voices_dir` before running \
-             `kotonoha setup-tts`, or pass `--model` + `--voices-dir`."
-        )
-    })?;
-
+    // Per CodeRabbit / Gemini PR #29 feedback: don't hard-require
+    // `[voice.kokoro]` when both `--model` and `--voices-dir` are
+    // given on the CLI. The config is only consulted to fill in the
+    // missing side, and the error message names the specific knob.
+    let kokoro = config.voice.kokoro.as_ref();
     let model_dest = args
         .model
         .clone()
-        .unwrap_or_else(|| PathBuf::from(&kokoro.model_path));
+        .or_else(|| kokoro.map(|k| PathBuf::from(&k.model_path)))
+        .ok_or_else(|| {
+            anyhow!(
+                "model path not specified — add `[voice.kokoro] model_path` \
+                 to configs/kotonoha.toml, or pass `--model <FILE>`."
+            )
+        })?;
     let voices_dir = args
         .voices_dir
         .clone()
-        .unwrap_or_else(|| PathBuf::from(&kokoro.voices_dir));
+        .or_else(|| kokoro.map(|k| PathBuf::from(&k.voices_dir)))
+        .ok_or_else(|| {
+            anyhow!(
+                "voices dir not specified — add `[voice.kokoro] voices_dir` \
+                 to configs/kotonoha.toml, or pass `--voices-dir <DIR>`."
+            )
+        })?;
 
     let model_url = if args.full {
         format!("{HF_REPO}/onnx/model.onnx")
@@ -175,22 +184,30 @@ async fn download_if_missing(
     dest: &Path,
     force: bool,
 ) -> anyhow::Result<()> {
+    // Atomic download: stream to `<dest>.partial`, fsync, then rename.
+    //
+    // Per Gemini / CodeRabbit PR #29: the previous "is the file
+    // larger than 1KB" heuristic skipped subsequent runs even when
+    // the file on disk was a truncated, half-downloaded asset from
+    // a Ctrl+C'd or network-dropped earlier run.  Writing to a
+    // `.partial` sibling and renaming on success means a successful
+    // run can never observe a corrupt `dest`, and a failed run
+    // leaves the partial out of the way of the skip check.
     if !force && dest.exists() {
         let size = tokio::fs::metadata(dest).await?.len();
-        if size > 1024 {
-            eprintln!(
-                "✓ already have {} ({:.1} MB)",
-                short(dest),
-                size as f64 / 1024.0 / 1024.0
-            );
-            return Ok(());
-        }
+        eprintln!(
+            "✓ already have {} ({:.1} MB)",
+            short(dest),
+            size as f64 / 1024.0 / 1024.0
+        );
+        return Ok(());
     }
     if let Some(parent) = dest.parent() {
         tokio::fs::create_dir_all(parent)
             .await
             .with_context(|| format!("create {}", parent.display()))?;
     }
+    let tmp_dest = dest.with_extension("partial");
     eprintln!("↓ {url}");
     let resp = client
         .get(url)
@@ -202,9 +219,9 @@ async fn download_if_missing(
     }
     let total = resp.content_length();
     let mut stream = resp.bytes_stream();
-    let mut file = tokio::fs::File::create(dest)
+    let mut file = tokio::fs::File::create(&tmp_dest)
         .await
-        .with_context(|| format!("create {}", dest.display()))?;
+        .with_context(|| format!("create {}", tmp_dest.display()))?;
     let mut downloaded: u64 = 0;
     let mut last_log = std::time::Instant::now();
     while let Some(chunk) = stream.next().await {
@@ -220,7 +237,15 @@ async fn download_if_missing(
             last_log = std::time::Instant::now();
         }
     }
-    file.flush().await?;
+    // `sync_all` (not `flush`) actually fsyncs to disk — flush on
+    // tokio::fs::File is a no-op since the writer isn't buffered.
+    file.sync_all()
+        .await
+        .with_context(|| format!("fsync {}", tmp_dest.display()))?;
+    drop(file);
+    tokio::fs::rename(&tmp_dest, dest)
+        .await
+        .with_context(|| format!("rename {} -> {}", tmp_dest.display(), dest.display()))?;
     eprintln!(
         "  saved {} ({:.1} MB)",
         short(dest),
