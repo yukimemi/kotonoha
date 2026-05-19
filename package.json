@@ -1,12 +1,12 @@
 {
   "name": "kotonoha",
   "private": true,
-  "workspaces": ["frontend"],
+  "workspaces": ["backend/crates/kotonoha-server/web"],
   "scripts": {
-    "_comment": "`bun --filter` swallows stdout on Windows in some versions — use explicit cd && bun for reliable Vite output.",
-    "dev": "cd frontend && bun run dev",
-    "build": "cd frontend && bun run build",
-    "preview": "cd frontend && bun run preview",
+    "_comment": "`bun --filter` swallows stdout on Windows in some versions — use explicit cd && bun for reliable Vite output. The frontend lives under the kotonoha-server crate so `cargo publish` can bake the built dist/ into the binary via rust-embed.",
+    "dev": "cd backend/crates/kotonoha-server/web && bun run dev",
+    "build": "cd backend/crates/kotonoha-server/web && bun run build",
+    "preview": "cd backend/crates/kotonoha-server/web && bun run preview",
     "setup:tts": "bun run scripts/setup-tts.ts"
   }
 }

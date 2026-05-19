@@ -1,6 +1,15 @@
 [package]
 name        = "kotonoha-server"
 description = "axum HTTP + WebSocket server that bridges the kotonoha frontend to claude/gemini/codex CLIs"
+include = [
+    "src/**/*",
+    # Only the built SPA bundle — rust-embed reads dist/ at compile
+    # time. node_modules/ + the Vite source under web/src/ don't ship
+    # to crates.io. The release.yml CI rebuilds the bundle before
+    # cargo publish so the published bytes match the tagged commit.
+    "web/dist/**/*",
+    "Cargo.toml",
+]
 version.workspace      = true
 edition.workspace      = true
 rust-version.workspace = true
@@ -20,15 +29,17 @@ path = "src/main.rs"
 [dependencies]
 # `path` + `version` so cargo publish keeps the version-pinned dep on
 # the published manifest while local builds still resolve via path.
-kotonoha-core = { path = "../kotonoha-core", version = "0.1.2" }
-kotonoha-llm  = { path = "../kotonoha-llm",  version = "0.1.2" }
-kotonoha-tts  = { path = "../kotonoha-tts",  version = "0.1.2" }
+kotonoha-core = { path = "../kotonoha-core", version = "0.1.3" }
+kotonoha-llm  = { path = "../kotonoha-llm",  version = "0.1.3" }
+kotonoha-tts  = { path = "../kotonoha-tts",  version = "0.1.3" }
 
 anyhow             = { workspace = true }
 axum               = { workspace = true }
 clap               = { workspace = true }
 futures            = { workspace = true }
+mime_guess         = { workspace = true }
 reqwest            = { workspace = true }
+rust-embed         = { workspace = true }
 serde              = { workspace = true }
 serde_json         = { workspace = true }
 tokio              = { workspace = true }

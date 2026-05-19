@@ -63,6 +63,19 @@ jobs:
         # of failing the whole release pipeline.
         continue-on-error: true
 
+      # rust-embed bakes web/dist/ into the kotonoha binary at compile
+      # time. Build the SPA fresh on each runner so the binary
+      # uploaded to the Release page carries the bundle produced from
+      # this exact commit (rather than whatever the maintainer last
+      # built locally and committed).
+      - uses: oven-sh/setup-bun@v2
+      - name: Build SPA bundle
+        working-directory: backend/crates/kotonoha-server/web
+        shell: bash
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+
       - name: Build release binary
         run: cargo build --release -p kotonoha-server
 
@@ -113,6 +126,17 @@ jobs:
       - uses: Swatinem/rust-cache@v2.9.1
         continue-on-error: true
 
+      # Same as build-artifacts: kotonoha-server's cargo publish runs
+      # `cargo publish --verify` which builds the crate, which
+      # requires web/dist/ to exist for rust-embed.
+      - uses: oven-sh/setup-bun@v2
+      - name: Build SPA bundle
+        working-directory: backend/crates/kotonoha-server/web
+        shell: bash
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+
       - name: Publish kotonoha-core
         run: cargo publish -p kotonoha-core --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
@@ -134,5 +158,13 @@ jobs:
         shell: bash
         run: sleep 60
 
+      # --allow-dirty because the SPA bundle was just (re-)built in
+      # the step above — the freshly-generated `web/dist/` carries
+      # different content-hash filenames than whatever the committer
+      # had locally, so cargo's clean-tree check is guaranteed-stale
+      # for kotonoha-server specifically. The published crate IS the
+      # CI-built bundle by design (rust-embed bakes it in at compile
+      # time); committing the local dist is only for `cargo run`
+      # convenience on the maintainer's box.
       - name: Publish kotonoha-server
-        run: cargo publish -p kotonoha-server --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish -p kotonoha-server --allow-dirty --token ${{ secrets.CARGO_REGISTRY_TOKEN }}

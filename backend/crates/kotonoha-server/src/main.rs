@@ -18,6 +18,7 @@ use kotonoha_core::Config;
 use kotonoha_tts::Tts;
 
 mod setup_tts;
+mod web;
 mod ws;
 
 #[derive(Debug, Parser)]
@@ -94,6 +95,9 @@ async fn run_serve(config: Config) -> anyhow::Result<()> {
         .route("/api/tts", post(tts))
         .route("/ws/chat", get(ws::ws_handler))
         .nest_service("/avatars", ServeDir::new(&avatars_dir))
+        // `fallback` runs after every other route fails — covers `/`
+        // and the SPA's client-side routes via rust-embed.
+        .fallback(web::serve)
         .with_state(state)
         .layer(cors)
         .layer(TraceLayer::new_for_http());

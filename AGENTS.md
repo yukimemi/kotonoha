@@ -170,14 +170,29 @@ Open <http://localhost:5173>. From a phone use Tailscale Funnel
 (`tailscale funnel --bg --https=443 5173`) — Web Speech API
 silently fails on plain HTTP origins.
 
-### Frontend = bun (not pnpm)
+### Frontend = bun, lives inside kotonoha-server
 
-Same convention as `kanade-backend/web`. Root `package.json`
-declares `frontend` as a workspace so `bun run dev` from the
+`backend/crates/kotonoha-server/web/` holds the React SPA — same
+layout as `kanade-backend/web/`. Root `package.json` declares
+that subdir as the workspace member so `bun run dev` from the
 repo root delegates correctly.
 
+The SPA is **baked into the `kotonoha` binary at compile time**
+via `rust-embed` (`src/web.rs`). `cargo install kotonoha-server`
+gives you a self-contained binary that serves both the API and
+the UI from port 7400 — no separate frontend process needed.
+
+`cargo make web-build` rebuilds `web/dist/`. The CI release
+workflow runs it on every OS runner before `cargo build` so the
+shipped binary always carries the bundle from the tagged commit.
+
+**`build.rs` placeholder:** if `web/dist/` is empty (fresh clone,
+no bun build yet), `build.rs` seeds an `index.html` that
+explains how to build the real SPA. Keeps `cargo check` /
+kata-managed CI working without bun.
+
 **Windows gotcha:** `bun run vite` on Windows swallows vite's
-stdout. Each script in `frontend/package.json` invokes node
+stdout. Each script in `web/package.json` invokes node
 directly (`node node_modules/vite/bin/vite.js`) to bypass the
 bun script-shim layer. See
 `reference_bun_windows_vite_stdout` in agent memory.

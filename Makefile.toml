@@ -64,12 +64,21 @@ command = "cargo"
 args = ["check", "--locked", "--all-targets"]
 
 [tasks.frontend-dev]
-description = "Run the Vite dev server (via bun)"
+description = "Run the Vite dev server (via bun) — note the SPA lives inside kotonoha-server so cargo publish can embed it"
 script_runner = "@shell"
 script = '''
-cd frontend
+cd backend/crates/kotonoha-server/web
 bun install
 bun run dev
+'''
+
+[tasks.web-build]
+description = "Build the SPA bundle (web/dist/) — required before `cargo build` since rust-embed reads it at compile time"
+script_runner = "@shell"
+script = '''
+cd backend/crates/kotonoha-server/web
+bun install --frozen-lockfile
+bun run build
 '''
 
 [tasks.publish-dry]
