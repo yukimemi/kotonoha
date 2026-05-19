@@ -24,20 +24,32 @@
     - [Gemini CLI](https://github.com/google-gemini/gemini-cli) (`gemini`)
     - [Codex CLI](https://github.com/openai/codex) (`codex`)
 
-起動:
+## cargo install 派 (バイナリだけ)
 
 ```pwsh
-# Gemini API を使うなら先に key を env にセット
+cargo install kotonoha-server
+kotonoha setup-tts                 # Kokoro モデル + ボイス DL
+$env:GEMINI_API_KEY = "xxx..."     # API モード使うなら
+kotonoha serve
+# → http://localhost:7400 — SPA が rust-embed でバイナリに焼かれてるので
+#   フロントエンド別起動は不要
+```
+
+## 開発する派 (リポジトリを clone)
+
+SPA を編集しながら開発する時は Vite dev server (HMR 込み) を別途立てる:
+
+```pwsh
 $env:GEMINI_API_KEY = "xxx..."
 
-# A) backend
+# A) backend (port 7400) — embedded SPA は古いままだが API は最新
 cargo make server-dev
 
-# B) frontend
+# B) frontend dev server (port 5173) — HMR、/api/* を 7400 へ proxy
 cargo make frontend-dev
 ```
 
-ブラウザで <http://localhost:5173> を開く。
+`http://localhost:5173` を開く (HMR 付き)。SPA を変更したら `cargo make web-build` で `web/dist/` を再ビルドし、`cargo build --release` で再焼き込み。
 
 ## Kokoro 音声を使う (オプション)
 

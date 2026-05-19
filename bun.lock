@@ -1,11 +1,10 @@
 {
   "lockfileVersion": 1,
-  "configVersion": 1,
   "workspaces": {
     "": {
       "name": "kotonoha",
     },
-    "frontend": {
+    "backend/crates/kotonoha-server/web": {
       "name": "kotonoha-frontend",
       "version": "0.1.0",
       "dependencies": {
@@ -668,7 +667,7 @@
 
     "jsonpointer": ["jsonpointer@5.0.1", "", {}, "sha512-p/nXbhSEcu3pZRdkW1OfJhpsVtW1gd4Wa1fnQc9YLiTfAjn0312eMKimbdIQzuZl9aa9xUGaRlP9T/CJE/ditQ=="],
 
-    "kotonoha-frontend": ["kotonoha-frontend@workspace:frontend"],
+    "kotonoha-frontend": ["kotonoha-frontend@workspace:backend/crates/kotonoha-server/web"],
 
     "leven": ["leven@3.1.0", "", {}, "sha512-qsda+H8jTaUaN/x5vzW2rzc+8Rw4TAQ/4KjB46IwK5VH+IlVeeeje/EoZRpiXvIqjFgK84QffqPztGI3VBLG1A=="],
 
