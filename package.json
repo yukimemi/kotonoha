@@ -2,7 +2,7 @@
   "name": "kotonoha",
   "private": true,
   "_workspaces_omitted": "Intentionally NOT declaring `workspaces`. The SPA's `web/package.json` runs Vite via a direct binary path (`node node_modules/vite/bin/vite.js`) to dodge a bun-on-Windows bug where `bun run vite` silently swallows the dev server's stdout. That direct path requires Vite to live under `web/node_modules/`, which only happens if bun installs locally there — workspace mode would hoist it to the repo root and break the build.",
-  "_comment": "The SPA lives under the kotonoha-server crate so `cargo publish` can bake the built dist/ into the binary via rust-embed. On a fresh clone run `bun install` inside `backend/crates/kotonoha-server/web/` (or use `cargo make frontend-dev` which cd's there first).",
+  "_comment": "The SPA lives under the kotonoha-server crate so `cargo publish` can bake the built dist/ into the binary via rust-embed. Fresh-clone install is intentionally two-step (run `bun install` from inside `backend/crates/kotonoha-server/web/`, or use `cargo make frontend-dev` which cd's there for you). Tried postinstall and `bun install && bun run ...` chains — both hang indefinitely on Windows because bun-from-inside-bun shares a parent lock that never releases. Until that upstream bug clears, the boring documented two-step is the only thing that doesn't deadlock.",
   "scripts": {
     "dev": "cd backend/crates/kotonoha-server/web && bun run dev",
     "build": "cd backend/crates/kotonoha-server/web && bun run build",
