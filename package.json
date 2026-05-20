@@ -1,7 +1,8 @@
 {
   "name": "kotonoha",
   "private": true,
-  "_workspaces_omitted": "Intentionally NOT declaring `workspaces` here. With workspace mode bun hoists node_modules to the repo root, which breaks `node node_modules/vite/bin/vite.js` invocations inside `backend/crates/kotonoha-server/web/` on CI (vite ends up under the root, not under web/). kanade-backend/web doesn't declare workspaces either — install + build happen inside the web/ dir and node_modules stays local.",
+  "_workspaces_omitted": "Intentionally NOT declaring `workspaces`. The SPA's `web/package.json` runs Vite via a direct binary path (`node node_modules/vite/bin/vite.js`) to dodge a bun-on-Windows bug where `bun run vite` silently swallows the dev server's stdout. That direct path requires Vite to live under `web/node_modules/`, which only happens if bun installs locally there — workspace mode would hoist it to the repo root and break the build.",
+  "_comment": "The SPA lives under the kotonoha-server crate so `cargo publish` can bake the built dist/ into the binary via rust-embed. On a fresh clone run `bun install` inside `backend/crates/kotonoha-server/web/` (or use `cargo make frontend-dev` which cd's there first).",
   "scripts": {
     "dev": "cd backend/crates/kotonoha-server/web && bun run dev",
     "build": "cd backend/crates/kotonoha-server/web && bun run build",
