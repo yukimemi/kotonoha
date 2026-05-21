@@ -102,12 +102,23 @@ async fn run_serve(config: Config) -> anyhow::Result<()> {
         .layer(cors)
         .layer(TraceLayer::new_for_http());
 
+    // Print a click-through URL the browser can actually resolve.
+    // The bind address can be `0.0.0.0` / `[::]` (listen on every
+    // interface), which browsers don't resolve as a destination —
+    // swap that for `localhost` so Ctrl+click in a terminal opens
+    // the dashboard. Keep the literal `bind=` for ops who need it.
+    let click_host = if bind.ip().is_unspecified() {
+        "localhost".to_string()
+    } else {
+        bind.ip().to_string()
+    };
     tracing::info!(
-        "kotonoha-server listening on http://{bind}, avatars from {}",
-        avatars_dir
+        "kotonoha-server listening on http://{click_host}:{port}/ (bind={bind}), avatars from {avatars}",
+        port = bind.port(),
+        avatars = avatars_dir
             .canonicalize()
             .unwrap_or_else(|_| avatars_dir.clone())
-            .display()
+            .display(),
     );
     let listener = tokio::net::TcpListener::bind(bind).await?;
     axum::serve(listener, app).await?;
