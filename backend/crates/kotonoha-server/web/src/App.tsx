@@ -309,9 +309,11 @@ function Selectors(p: SelectorsProps) {
  *  "VOICEVOX:<character>" alongside the speaker selector so the
  *  attribution is visible whenever a VOICEVOX clip might play. */
 function VoicevoxCredit({ speakerId, stacked }: { speakerId: number; stacked?: boolean }) {
+  // Fall back to a generic "VOICEVOX" label when the speaker id
+  // isn't in the curated list — the license requires attribution
+  // whenever the engine is used, even for ids outside our table.
   const character = speakerCharacter(speakerId);
-  if (!character) return null;
-  const label = `VOICEVOX:${character}`;
+  const label = character ? `VOICEVOX:${character}` : "VOICEVOX";
   if (stacked) {
     return (
       <>

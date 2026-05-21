@@ -33,14 +33,6 @@ export const VOICEVOX_SPEAKERS: VoicevoxSpeaker[] = [
   { id: 11, character: "玄野武宏",           style: "ノーマル", hint: "男性・先生役" },
 ];
 
-/** Lookup helper — falls back to the default-id label when an id
- *  isn't in the curated list (e.g. user typed one via API). */
-export function speakerLabel(id: number): string {
-  const sp = VOICEVOX_SPEAKERS.find((s) => s.id === id);
-  if (!sp) return `speaker ${id}`;
-  return `${sp.character} (${sp.style})`;
-}
-
 export function speakerCharacter(id: number): string | undefined {
   return VOICEVOX_SPEAKERS.find((s) => s.id === id)?.character;
 }
