@@ -15,9 +15,11 @@ use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 
 use kotonoha_core::Config;
-use kotonoha_tts::Tts;
+use kotonoha_tts::kokoro::Tts as KokoroTts;
+use kotonoha_tts::voicevox::Tts as VoicevoxTts;
 
 mod setup_tts;
+mod setup_voicevox;
 mod web;
 mod ws;
 
@@ -48,6 +50,11 @@ enum Cmd {
     /// tree, but works for users who installed via `cargo install`
     /// and don't have bun / the repo checked out.
     SetupTts(setup_tts::SetupTtsArgs),
+    /// Download the VOICEVOX core library + ONNX runtime + curated
+    /// speaker models into the binary's directory. Required for
+    /// Japanese-language TTS (Kokoro's misaki-lean phonemizer is
+    /// English-only).
+    SetupVoicevox(setup_voicevox::SetupVoicevoxArgs),
 }
 
 #[derive(Clone)]
@@ -55,7 +62,11 @@ pub struct AppState {
     pub config: Arc<Config>,
     /// Lazily-loaded Kokoro engine. First /api/tts request pays the
     /// model-load cost (~200ms-1s); subsequent requests are warm.
-    pub tts: Arc<OnceCell<Tts>>,
+    pub kokoro: Arc<OnceCell<KokoroTts>>,
+    /// Lazily-loaded VOICEVOX engine. First call to the JA path
+    /// pays the core-library download (if not already cached) +
+    /// model init; subsequent calls are warm.
+    pub voicevox: Arc<OnceCell<VoicevoxTts>>,
 }
 
 #[tokio::main]
@@ -74,6 +85,7 @@ async fn main() -> anyhow::Result<()> {
     match cli.cmd.unwrap_or(Cmd::Serve) {
         Cmd::Serve => run_serve(config).await,
         Cmd::SetupTts(args) => setup_tts::run(&config, args).await,
+        Cmd::SetupVoicevox(args) => setup_voicevox::run(&config, args).await,
     }
 }
 
@@ -82,7 +94,8 @@ async fn run_serve(config: Config) -> anyhow::Result<()> {
     let avatars_dir = config.avatars_dir();
     let state = AppState {
         config: Arc::new(config),
-        tts: Arc::new(OnceCell::new()),
+        kokoro: Arc::new(OnceCell::new()),
+        voicevox: Arc::new(OnceCell::new()),
     };
 
     let cors = CorsLayer::new()
@@ -151,6 +164,19 @@ async fn info(State(state): State<AppState>) -> axum::Json<serde_json::Value> {
         .kokoro
         .as_ref()
         .map(|k| k.default_voice.clone());
+    let voicevox_default = state
+        .config
+        .voice
+        .voicevox
+        .as_ref()
+        .map(|v| v.default_speaker_id);
+    let voicevox_speakers = state
+        .config
+        .voice
+        .voicevox
+        .as_ref()
+        .map(|v| v.preload_speakers.clone())
+        .unwrap_or_default();
 
     axum::Json(serde_json::json!({
         "backends": backends,
@@ -164,35 +190,78 @@ async fn info(State(state): State<AppState>) -> axum::Json<serde_json::Value> {
         "voice": {
             "stt": state.config.voice.stt,
             "tts": state.config.voice.tts,
-            "kokoro_voices":  kokoro_voices,
-            "kokoro_default": kokoro_default,
+            "kokoro_voices":   kokoro_voices,
+            "kokoro_default":  kokoro_default,
+            "voicevox_default": voicevox_default,
+            "voicevox_speakers": voicevox_speakers,
         },
     }))
+}
+
+/// Crude language detector used to route `/api/tts` between Kokoro
+/// (English) and VOICEVOX (Japanese). Any hiragana / katakana /
+/// CJK ideograph in the text → Japanese. Otherwise English. This
+/// is intentionally simple — the frontend can also pass an explicit
+/// `lang` on the request to override.
+fn detect_lang(text: &str) -> &'static str {
+    let has_ja = text.chars().any(|c| {
+        matches!(c,
+            '\u{3040}'..='\u{309f}'   // hiragana
+            | '\u{30a0}'..='\u{30ff}'  // katakana
+            | '\u{4e00}'..='\u{9fff}'  // CJK unified ideographs
+        )
+    });
+    if has_ja { "ja" } else { "en" }
 }
 
 #[derive(Debug, serde::Deserialize)]
 struct TtsRequest {
     text: String,
+    /// Kokoro voice name (e.g. "jf_alpha", "af_heart").
     #[serde(default)]
     voice: Option<String>,
+    /// VOICEVOX speaker id (numeric).
+    #[serde(default)]
+    speaker_id: Option<u32>,
+    /// Playback rate for Kokoro (VOICEVOX uses its own pacing).
     #[serde(default)]
     speed: Option<f32>,
+    /// Routing hint: "en" → Kokoro, "ja" → VOICEVOX, "auto" or
+    /// missing → script-based detection (hiragana / katakana /
+    /// kanji present → ja, else en).
+    #[serde(default)]
+    lang: Option<String>,
 }
 
 async fn tts(
     State(state): State<AppState>,
     axum::Json(req): axum::Json<TtsRequest>,
 ) -> Result<Response, (StatusCode, String)> {
+    let lang = req
+        .lang
+        .as_deref()
+        .filter(|l| matches!(*l, "en" | "ja"))
+        .unwrap_or_else(|| detect_lang(&req.text));
+
+    match lang {
+        "ja" => synth_voicevox(&state, &req).await,
+        _ => synth_kokoro(&state, &req).await,
+    }
+}
+
+async fn synth_kokoro(
+    state: &AppState,
+    req: &TtsRequest,
+) -> Result<Response, (StatusCode, String)> {
     let kokoro_cfg = state.config.voice.kokoro.as_ref().ok_or((
         StatusCode::SERVICE_UNAVAILABLE,
         "kokoro not configured".into(),
     ))?;
 
-    // First request initializes; subsequent requests reuse the warm engine.
     let tts = state
-        .tts
+        .kokoro
         .get_or_try_init(|| async {
-            Tts::load(&kotonoha_tts::TtsConfig {
+            KokoroTts::load(&kotonoha_tts::kokoro::TtsConfig {
                 model_path: kokoro_cfg.model_path.clone().into(),
                 voices_dir: kokoro_cfg.voices_dir.clone().into(),
             })
@@ -202,18 +271,65 @@ async fn tts(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("tts init: {e:#}"),
+                format!("kokoro init: {e:#}"),
             )
         })?;
 
     let voice = req
         .voice
+        .clone()
         .unwrap_or_else(|| kokoro_cfg.default_voice.clone());
     let speed = req.speed.unwrap_or(kokoro_cfg.speed);
     let wav = tts
         .synthesize_wav(&req.text, &voice, speed)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("synth: {e:#}")))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("kokoro synth: {e:#}"),
+            )
+        })?;
+
+    Ok(([(header::CONTENT_TYPE, "audio/wav")], wav).into_response())
+}
+
+async fn synth_voicevox(
+    state: &AppState,
+    req: &TtsRequest,
+) -> Result<Response, (StatusCode, String)> {
+    let vv_cfg = state.config.voice.voicevox.as_ref().ok_or((
+        StatusCode::SERVICE_UNAVAILABLE,
+        "voicevox not configured — add `[voice.voicevox]` to configs/kotonoha.toml \
+         and run `kotonoha setup-voicevox` first"
+            .into(),
+    ))?;
+
+    let tts = state
+        .voicevox
+        .get_or_try_init(|| async {
+            VoicevoxTts::load(&kotonoha_tts::voicevox::TtsConfig {
+                speaker_ids: vv_cfg.preload_speakers.clone(),
+            })
+            .await
+        })
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("voicevox init: {e:#}"),
+            )
+        })?;
+
+    let speaker_id = req.speaker_id.unwrap_or(vv_cfg.default_speaker_id);
+    let wav = tts
+        .synthesize_wav(&req.text, speaker_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("voicevox synth: {e:#}"),
+            )
+        })?;
 
     Ok(([(header::CONTENT_TYPE, "audio/wav")], wav).into_response())
 }

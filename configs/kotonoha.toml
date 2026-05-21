@@ -44,6 +44,19 @@ voices_dir = "./models/kokoro/voices"
 default_voice = "jf_alpha"
 speed = 1.0
 
+# VOICEVOX is used for Japanese-language synthesis. Kokoro's
+# misaki-lean phonemizer is English-only, so JA text routes here.
+# Run `kotonoha setup-voicevox` once to download the core engine
+# + ONNX runtime + preloaded speaker models.
+#
+# Each speaker carries its own license — the UI must credit
+# "VOICEVOX:<character>" wherever a speaker is exposed. The
+# preloaded subset below is the child-safe trio (春日部つむぎ /
+# 四国めたん / ずんだもん); add more ids on demand.
+[voice.voicevox]
+default_speaker_id = 8        # 春日部つむぎ (ノーマル)
+preload_speakers   = [2, 3, 8] # 四国めたん, ずんだもん, 春日部つむぎ
+
 # ---- backends -------------------------------------------------------
 #
 # Each backend is a CLI command the server spawns per turn.  stdin

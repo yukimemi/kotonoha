@@ -22,3 +22,11 @@ tracing     = { workspace = true }
 # native DLL.  `misaki-lean` uses a Rust-only G2P that's good enough
 # for an English-speaking-with-occasional-Japanese teacher scenario.
 kokoro-en = { version = "0.1.4", default-features = false, features = ["misaki-lean"] }
+
+# VOICEVOX dynamic-load TTS. The crate doesn't pull in any native
+# deps at build time — `VoiceVox::load()` downloads the platform
+# core library + ONNX runtime at runtime into a known directory
+# (or uses an already-downloaded copy). Lets us keep the "cargo
+# install kotonoha-server" one-binary story while still supporting
+# Japanese TTS that misaki-lean can't pronounce.
+voicevox-dyn = { workspace = true }

@@ -11,11 +11,22 @@
 //     finishes draining.
 
 type Opts = {
+  /** Kokoro voice id for English sentences (e.g. "jf_alpha"). */
   voice: string;
+  /** VOICEVOX speaker id for Japanese sentences. Optional — if
+   *  omitted the server falls back to the default from config. */
+  voicevoxSpeakerId?: number;
   speed?: number;
   /** 0-1 mouth-open level, driven by the currently-playing audio. */
   onLevel: (v: number) => void;
 };
+
+/** Detect if a sentence is "Japanese enough" to route to VOICEVOX.
+ *  Any hiragana / katakana / CJK ideograph triggers ja; everything
+ *  else stays en. Matches the backend's `detect_lang`. */
+function detectLang(text: string): "ja" | "en" {
+  return /[぀-ゟ゠-ヿ一-鿿]/.test(text) ? "ja" : "en";
+}
 
 export class KokoroQueue {
   private chain: Promise<void> = Promise.resolve();
@@ -33,10 +44,21 @@ export class KokoroQueue {
 
     const abort = new AbortController();
     this.aborts.add(abort);
+    // Tag each sentence with its language so the backend routes to
+    // VOICEVOX for Japanese and Kokoro for English. Both engines
+    // expect different speaker identifiers, so we send both fields —
+    // the server picks the one that matches the resolved lang.
+    const lang = detectLang(sentence);
     const blobP = fetch("/api/tts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: sentence, voice: this.opts.voice, speed: this.opts.speed ?? 1.0 }),
+      body: JSON.stringify({
+        text: sentence,
+        lang,
+        voice: this.opts.voice,
+        speaker_id: this.opts.voicevoxSpeakerId,
+        speed: this.opts.speed ?? 1.0,
+      }),
       signal: abort.signal,
     })
       .then(async (r) => {
