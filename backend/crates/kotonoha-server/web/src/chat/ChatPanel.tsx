@@ -22,11 +22,12 @@ type Props = {
   lesson: string;
   ttsMode: "browser" | "kokoro";
   kokoroVoice: string;
+  voicevoxSpeaker: number;
   /** Drive the avatar's mouth-open value while TTS is speaking. */
   setMouth: (v: number) => void;
 };
 
-export default function ChatPanel({ backend, lesson, ttsMode, kokoroVoice, setMouth }: Props) {
+export default function ChatPanel({ backend, lesson, ttsMode, kokoroVoice, voicevoxSpeaker, setMouth }: Props) {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [draft, setDraft] = useState("");
   const [listening, setListening] = useState(false);
@@ -65,6 +66,7 @@ export default function ChatPanel({ backend, lesson, ttsMode, kokoroVoice, setMo
           if (!ttsQueueRef.current) {
             ttsQueueRef.current = new KokoroQueue({
               voice: kokoroVoiceRef.current,
+              voicevoxSpeakerId: voicevoxSpeakerRef.current,
               onLevel: setMouth,
             });
           }
@@ -85,7 +87,11 @@ export default function ChatPanel({ backend, lesson, ttsMode, kokoroVoice, setMo
           // Flush whatever's left in the sentence buffer (trailing text
           // with no terminator, e.g. "Sure"). Then let the queue drain.
           const q = ttsQueueRef.current
-            ?? new KokoroQueue({ voice: kokoroVoiceRef.current, onLevel: setMouth });
+            ?? new KokoroQueue({
+              voice: kokoroVoiceRef.current,
+              voicevoxSpeakerId: voicevoxSpeakerRef.current,
+              onLevel: setMouth,
+            });
           ttsQueueRef.current = q;
           const { sentences } = extractSentences(ttsBufRef.current, true);
           ttsBufRef.current = "";
@@ -120,8 +126,10 @@ export default function ChatPanel({ backend, lesson, ttsMode, kokoroVoice, setMo
   useEffect(() => { busyRef.current = busy; }, [busy]);
   const ttsModeRef = useRef(ttsMode);
   const kokoroVoiceRef = useRef(kokoroVoice);
+  const voicevoxSpeakerRef = useRef(voicevoxSpeaker);
   useEffect(() => { ttsModeRef.current = ttsMode; }, [ttsMode]);
   useEffect(() => { kokoroVoiceRef.current = kokoroVoice; }, [kokoroVoice]);
+  useEffect(() => { voicevoxSpeakerRef.current = voicevoxSpeaker; }, [voicevoxSpeaker]);
 
   useEffect(() => {
     wsRef.current?.send({ type: "configure", backend, lesson });

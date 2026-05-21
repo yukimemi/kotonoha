@@ -4,6 +4,7 @@ import type { ServerInfo } from "./types";
 import VrmViewer from "./avatar/VrmViewer";
 import ChatPanel from "./chat/ChatPanel";
 import { listVoices, setPreferredVoice, speak } from "./voice/speech";
+import { VOICEVOX_SPEAKERS, speakerCharacter } from "./voice/voicevox-speakers";
 import { usePersistedState } from "./usePersistedState";
 
 export default function App() {
@@ -19,6 +20,12 @@ export default function App() {
   );
   const [browserVoice, setBrowserVoice] = usePersistedState<string>("kotonoha:browserVoice", "");
   const [kokoroVoice, setKokoroVoice] = usePersistedState<string>("kotonoha:kokoroVoice", "");
+  // VOICEVOX speaker id (numeric) — only used for JA sentences;
+  // English ones always go through Kokoro regardless of this pick.
+  const [voicevoxSpeaker, setVoicevoxSpeaker] = usePersistedState<number>(
+    "kotonoha:voicevoxSpeaker",
+    8, // 春日部つむぎ (ノーマル) — child-safe default
+  );
   const [browserVoices, setBrowserVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [mouth, setMouth] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -75,15 +82,18 @@ export default function App() {
   if (err) return <div className="p-6 text-kotonoha-accent">起動に失敗: {err}</div>;
   if (!info) return <div className="p-6">読み込み中…</div>;
 
+  const voicevoxAvailable = info.voice.voicevox_default != null;
   const selectorsProps = {
     info,
     backend, lesson, avatar, ttsMode, browserVoice, browserVoices, kokoroVoice,
+    voicevoxSpeaker, voicevoxAvailable,
     onBackend: setBackend,
     onLesson: setLesson,
     onAvatar: setAvatar,
     onTtsMode: setTtsMode,
     onBrowserVoice: setBrowserVoice,
     onKokoroVoice: setKokoroVoice,
+    onVoicevoxSpeaker: setVoicevoxSpeaker,
   };
 
   return (
@@ -135,6 +145,7 @@ export default function App() {
             lesson={lesson}
             ttsMode={ttsMode}
             kokoroVoice={kokoroVoice}
+            voicevoxSpeaker={voicevoxSpeaker}
             setMouth={setMouth}
           />
         )}
@@ -150,12 +161,15 @@ type SelectorsProps = {
   browserVoice: string;
   browserVoices: SpeechSynthesisVoice[];
   kokoroVoice: string;
+  voicevoxSpeaker: number;
+  voicevoxAvailable: boolean;
   onBackend: (v: string) => void;
   onLesson: (v: string) => void;
   onAvatar: (v: string) => void;
   onTtsMode: (v: "browser" | "kokoro") => void;
   onBrowserVoice: (v: string) => void;
   onKokoroVoice: (v: string) => void;
+  onVoicevoxSpeaker: (v: number) => void;
   /** Stack rows full-width with labels (mobile settings panel). */
   stacked?: boolean;
 };
@@ -210,6 +224,23 @@ function Selectors(p: SelectorsProps) {
             </SelectBare>
           )}
         </Row>
+        {p.voicevoxAvailable && (
+          <Row label="JA ボイス">
+            <SelectBare
+              value={String(p.voicevoxSpeaker)}
+              onChange={(v) => p.onVoicevoxSpeaker(parseInt(v, 10))}
+            >
+              {VOICEVOX_SPEAKERS.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.character} ({s.style})
+                </option>
+              ))}
+            </SelectBare>
+          </Row>
+        )}
+        {p.voicevoxAvailable && (
+          <VoicevoxCredit speakerId={p.voicevoxSpeaker} stacked />
+        )}
       </div>
     );
   }
@@ -255,7 +286,57 @@ function Selectors(p: SelectorsProps) {
             p.browserVoices.map((v) => <option key={v.name} value={v.name}>{v.name}</option>)}
         </select>
       )}
+      {p.voicevoxAvailable && (
+        <select
+          className={cls + " truncate"}
+          title="VOICEVOX speaker (for Japanese sentences)"
+          value={String(p.voicevoxSpeaker)}
+          onChange={(e) => p.onVoicevoxSpeaker(parseInt(e.target.value, 10))}
+        >
+          {VOICEVOX_SPEAKERS.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.character} ({s.style})
+            </option>
+          ))}
+        </select>
+      )}
+      {p.voicevoxAvailable && <VoicevoxCredit speakerId={p.voicevoxSpeaker} />}
     </div>
+  );
+}
+
+/** Required credit per VOICEVOX usage terms — shows
+ *  "VOICEVOX:<character>" alongside the speaker selector so the
+ *  attribution is visible whenever a VOICEVOX clip might play. */
+function VoicevoxCredit({ speakerId, stacked }: { speakerId: number; stacked?: boolean }) {
+  const character = speakerCharacter(speakerId);
+  if (!character) return null;
+  const label = `VOICEVOX:${character}`;
+  if (stacked) {
+    return (
+      <>
+        <span className="font-ja text-xs text-kotonoha-ink/60">クレジット</span>
+        <a
+          href="https://voicevox.hiroshiba.jp/"
+          target="_blank"
+          rel="noreferrer"
+          className="font-en text-xs text-kotonoha-ink/70 hover:underline"
+        >
+          {label}
+        </a>
+      </>
+    );
+  }
+  return (
+    <a
+      href="https://voicevox.hiroshiba.jp/"
+      target="_blank"
+      rel="noreferrer"
+      className="ml-1 self-center font-en text-xs text-kotonoha-ink/60 hover:underline"
+      title="VOICEVOX 利用規約に基づく必須クレジット表示"
+    >
+      {label}
+    </a>
   );
 }
 
