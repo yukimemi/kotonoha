@@ -20,7 +20,7 @@ authors      = ["yukimemi <yukimemi@gmail.com>"]
 tokio              = { version = "1.52.3", features = ["full"] }
 tokio-util         = { version = "0.7.18", features = ["io"] }
 serde              = { version = "1.0.228", features = ["derive"] }
-serde_json         = "1.0.149"
+serde_json         = "1.0.150"
 toml               = "1.1.2"
 teravars           = { version = "0.1.6", features = ["merge"] }
 tracing            = "0.1.44"
