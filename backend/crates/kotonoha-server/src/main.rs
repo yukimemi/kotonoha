@@ -275,13 +275,12 @@ async fn synth_kokoro(
             )
         })?;
 
-    let voice = req
-        .voice
-        .clone()
-        .unwrap_or_else(|| kokoro_cfg.default_voice.clone());
+    // `synthesize_wav` borrows the voice — no need to clone the
+    // config default when no override was supplied.
+    let voice = req.voice.as_deref().unwrap_or(&kokoro_cfg.default_voice);
     let speed = req.speed.unwrap_or(kokoro_cfg.speed);
     let wav = tts
-        .synthesize_wav(&req.text, &voice, speed)
+        .synthesize_wav(&req.text, voice, speed)
         .await
         .map_err(|e| {
             (
