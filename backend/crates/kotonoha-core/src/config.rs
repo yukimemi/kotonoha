@@ -55,6 +55,9 @@ pub struct VoiceConfig {
     pub tts: String,
     /// Optional kokoro section — only required when `tts = "kokoro"`.
     pub kokoro: Option<KokoroConfig>,
+    /// Optional voicevox section — used when a request asks for
+    /// Japanese synthesis (lang=ja or auto-detected).
+    pub voicevox: Option<VoicevoxConfig>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -77,6 +80,28 @@ fn default_kokoro_voice() -> String {
 
 fn default_kokoro_speed() -> f32 {
     1.0
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct VoicevoxConfig {
+    /// Numeric VOICEVOX speaker id (e.g. 8 = 春日部つむぎ ノーマル).
+    /// See `kotonoha-tts::voicevox` docs for the curated subset and
+    /// each character's license requirements.
+    #[serde(default = "default_voicevox_speaker")]
+    pub default_speaker_id: u32,
+    /// Speaker ids to pre-load on engine init. On-demand loading
+    /// still works for everything else; this just hides the
+    /// first-call latency for the speakers you expect to use.
+    #[serde(default = "default_voicevox_preload")]
+    pub preload_speakers: Vec<u32>,
+}
+
+fn default_voicevox_speaker() -> u32 {
+    8
+}
+
+fn default_voicevox_preload() -> Vec<u32> {
+    vec![2, 3, 8] // 四国めたん, ずんだもん, 春日部つむぎ
 }
 
 /// Backend configuration — either a local CLI subprocess (claude /

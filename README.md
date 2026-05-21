@@ -57,15 +57,30 @@ cargo make frontend-dev
 
 ```sh
 # cargo install 経由のユーザー (バイナリだけ持ってる人):
-kotonoha setup-tts                      # 量子化モデル (~92 MB) + 厳選 6 ボイス
+kotonoha setup-tts                      # Kokoro 量子化モデル (~92 MB) + 英語ボイス 6
 kotonoha setup-tts --all-voices         # 全 54 ボイス
-kotonoha setup-tts --full               # フル精度モデル (~325 MB)
+kotonoha setup-tts --full               # Kokoro フル精度モデル (~325 MB)
+
+kotonoha setup-voicevox                 # VOICEVOX core + 日本語キャラ (~200 MB)
 
 # repo を clone した dev 向け (bun 必要、機能は完全等価):
 bun run setup:tts
 bun run setup:tts -- --all-voices
 bun run setup:tts -- --full
 ```
+
+### 言語別ルーティング
+
+`/api/tts` は文単位で言語を見て自動的に振り分けます:
+
+- **英語**: Kokoro (`misaki-lean` G2P、`jf_alpha` 等の英語ボイス)
+- **日本語** (ひらがな / カタカナ / 漢字を含む文): VOICEVOX (`春日部つむぎ` 等)
+
+明示指定したい時はリクエストに `lang: "en" | "ja"` を付けると override 可。
+
+### VOICEVOX ライセンス
+
+VOICEVOX のキャラはそれぞれ個別の利用規約を持ちます。本プロジェクトの初期設定は子供向け OK / 商用 OK のキャラ (春日部つむぎ / 四国めたん / ずんだもん) を pre-load しますが、UI 上で再生中のキャラに対しては **"VOICEVOX:<キャラ名>"** のクレジット表示が必要です。詳しくは [VOICEVOX 公式](https://voicevox.hiroshiba.jp/) を参照。
 
 `configs/kotonoha.toml` の `[voice].tts` を `"kokoro"` に変更して backend 再起動 → UI 右上の TTS セレクタで browser / Kokoro を切替可能。
 
