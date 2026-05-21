@@ -9,9 +9,9 @@
 
 [vars]
 default_backend = "gemini-flash"
-default_lesson  = "elementary-low"
-default_avatar  = "miku.vrm"
-server_bind     = "0.0.0.0:7400"
+default_lesson = "elementary-low"
+default_avatar = "miku.vrm"
+server_bind = "0.0.0.0:7400"
 
 [server]
 bind = "{{ vars.server_bind }}"
@@ -20,8 +20,8 @@ bind = "{{ vars.server_bind }}"
 cors_allow_origins = ["*"]
 
 [avatars]
-dir            = "./avatars"
-default        = "{{ vars.default_avatar }}"
+dir = "./avatars"
+default = "{{ vars.default_avatar }}"
 
 [voice]
 # stt: "browser" (Web Speech API) — only viable cross-platform
@@ -39,10 +39,10 @@ tts = "kokoro"
 # persona much better than a native American voice (kids hear it as a
 # familiar 先生 rather than a foreign speaker).
 [voice.kokoro]
-model_path    = "./models/kokoro/model.onnx"
-voices_dir    = "./models/kokoro/voices"
+model_path = "./models/kokoro/model.onnx"
+voices_dir = "./models/kokoro/voices"
 default_voice = "jf_alpha"
-speed         = 1.0
+speed = 1.0
 
 # ---- backends -------------------------------------------------------
 #
@@ -59,15 +59,15 @@ speed         = 1.0
 # which battle-tested all three across versions of each tool.
 
 [backend.claude]
-cmd  = "claude"
+cmd = "claude"
 args = ["-p", "-"]
 
 [backend.gemini]
-cmd  = "gemini"
+cmd = "gemini"
 args = ["-p", "-"]
 
 [backend.codex]
-cmd  = "codex"
+cmd = "codex"
 args = ["exec", "-"]
 
 # ---- API direct backends ------------------------------------------
@@ -83,16 +83,16 @@ args = ["exec", "-"]
 # Then set GEMINI_API_KEY in your shell before launching the server.
 
 [backend.gemini-flash]
-provider     = "google"
-model        = "gemini-2.5-flash"
-api_key_env  = "GEMINI_API_KEY"
-temperature  = 0.7
+provider = "google"
+model = "gemini-3.5-flash"
+api_key_env = "GEMINI_API_KEY"
+temperature = 0.7
 
 [backend.gemini-pro]
-provider     = "google"
-model        = "gemini-2.5-pro"
-api_key_env  = "GEMINI_API_KEY"
-temperature  = 0.7
+provider = "google"
+model = "gemini-2.5-pro"
+api_key_env = "GEMINI_API_KEY"
+temperature = 0.7
 
 # ---- lessons -------------------------------------------------------
 #
