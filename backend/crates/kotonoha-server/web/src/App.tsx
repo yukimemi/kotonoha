@@ -5,6 +5,7 @@ import VrmViewer from "./avatar/VrmViewer";
 import ChatPanel from "./chat/ChatPanel";
 import { listVoices, setPreferredVoice, speak } from "./voice/speech";
 import { VOICEVOX_SPEAKERS, speakerCharacter } from "./voice/voicevox-speakers";
+import { previewKokoroVoice, previewVoicevoxSpeaker } from "./voice/preview";
 import { usePersistedState } from "./usePersistedState";
 
 export default function App() {
@@ -87,6 +88,7 @@ export default function App() {
     info,
     backend, lesson, avatar, ttsMode, browserVoice, browserVoices, kokoroVoice,
     voicevoxSpeaker, voicevoxAvailable,
+    setMouth,
     onBackend: setBackend,
     onLesson: setLesson,
     onAvatar: setAvatar,
@@ -163,6 +165,8 @@ type SelectorsProps = {
   kokoroVoice: string;
   voicevoxSpeaker: number;
   voicevoxAvailable: boolean;
+  /** Lets the in-settings preview drive the avatar's mouth too. */
+  setMouth: (v: number) => void;
   onBackend: (v: string) => void;
   onLesson: (v: string) => void;
   onAvatar: (v: string) => void;
@@ -209,7 +213,10 @@ function Selectors(p: SelectorsProps) {
         </Row>
         <Row label="ボイス">
           {p.ttsMode === "kokoro" ? (
-            <SelectBare value={p.kokoroVoice} onChange={p.onKokoroVoice}>
+            <SelectBare value={p.kokoroVoice} onChange={(v) => {
+              p.onKokoroVoice(v);
+              previewKokoroVoice(v, { onLevel: p.setMouth });
+            }}>
               {(p.info.voice.kokoro_voices ?? []).map((v) => (
                 <option key={v} value={v}>{v}</option>
               ))}
@@ -228,7 +235,11 @@ function Selectors(p: SelectorsProps) {
           <Row label="JA ボイス">
             <SelectBare
               value={String(p.voicevoxSpeaker)}
-              onChange={(v) => p.onVoicevoxSpeaker(parseInt(v, 10))}
+              onChange={(v) => {
+                const id = parseInt(v, 10);
+                p.onVoicevoxSpeaker(id);
+                previewVoicevoxSpeaker(id, { onLevel: p.setMouth });
+              }}
             >
               {VOICEVOX_SPEAKERS.map((s) => (
                 <option key={s.id} value={s.id}>
@@ -271,7 +282,10 @@ function Selectors(p: SelectorsProps) {
       </select>
       {p.ttsMode === "kokoro" ? (
         <select className={cls + " truncate"} value={p.kokoroVoice}
-          onChange={(e) => p.onKokoroVoice(e.target.value)}>
+          onChange={(e) => {
+            p.onKokoroVoice(e.target.value);
+            previewKokoroVoice(e.target.value, { onLevel: p.setMouth });
+          }}>
           {(p.info.voice.kokoro_voices ?? []).map((v) => (
             <option key={v} value={v}>{v}</option>
           ))}
@@ -291,7 +305,11 @@ function Selectors(p: SelectorsProps) {
           className={cls + " truncate"}
           title="VOICEVOX speaker (for Japanese sentences)"
           value={String(p.voicevoxSpeaker)}
-          onChange={(e) => p.onVoicevoxSpeaker(parseInt(e.target.value, 10))}
+          onChange={(e) => {
+            const id = parseInt(e.target.value, 10);
+            p.onVoicevoxSpeaker(id);
+            previewVoicevoxSpeaker(id, { onLevel: p.setMouth });
+          }}
         >
           {VOICEVOX_SPEAKERS.map((s) => (
             <option key={s.id} value={s.id}>
