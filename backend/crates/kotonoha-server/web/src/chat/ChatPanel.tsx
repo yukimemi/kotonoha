@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ChatSocket } from "../api";
 import { createRecognizer, speak } from "../voice/speech";
 import { KokoroQueue, extractSentences } from "../voice/kokoro-queue";
+import { type Emotion, feedEmotionStream, extractEmotions } from "../voice/emotion";
 
 type Turn = { role: "student" | "teacher"; text: string };
 
@@ -25,16 +26,24 @@ type Props = {
   voicevoxSpeaker: number;
   /** Drive the avatar's mouth-open value while TTS is speaking. */
   setMouth: (v: number) => void;
+  /** Drive the avatar's facial expression. Updated whenever the LLM
+   *  emits an `[emotion]` tag mid-stream. */
+  setEmotion: (e: Emotion) => void;
 };
 
-export default function ChatPanel({ backend, lesson, ttsMode, kokoroVoice, voicevoxSpeaker, setMouth }: Props) {
+export default function ChatPanel({ backend, lesson, ttsMode, kokoroVoice, voicevoxSpeaker, setMouth, setEmotion }: Props) {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [draft, setDraft] = useState("");
   const [listening, setListening] = useState(false);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("接続中…");
   const wsRef = useRef<ChatSocket | null>(null);
+  // pendingRef holds the rendered text shown to the user (post
+  // emotion-tag stripping). rawBufRef holds the trailing portion
+  // of the raw stream we couldn't safely render yet — typically an
+  // unclosed `[` waiting for the next chunk to close it.
   const pendingRef = useRef<string>("");
+  const rawBufRef = useRef<string>("");
   const recRef = useRef<ReturnType<typeof createRecognizer> | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const mouthTimer = useRef<number | null>(null);
@@ -46,10 +55,17 @@ export default function ChatPanel({ backend, lesson, ttsMode, kokoroVoice, voice
     const ws = new ChatSocket({
       onReady: ({ backend, lesson }) => setStatus(`${backend} / ${lesson}`),
       onDelta: (text) => {
-        pendingRef.current += text;
-        // Snapshot so the setTurns updater isn't reading a ref that
-        // `onDone` may have already cleared by the time React batches
-        // and processes our queued updates.
+        // Pull emotion tags out of the raw stream; everything that
+        // makes it into pendingRef is already stripped, so chat
+        // bubbles + TTS see clean text and the avatar gets its
+        // expression updates as the tags appear.
+        rawBufRef.current += text;
+        const { safeStripped, emotions, rest } = feedEmotionStream(rawBufRef.current);
+        rawBufRef.current = rest;
+        for (const e of emotions) setEmotion(e);
+
+        if (!safeStripped) return;
+        pendingRef.current += safeStripped;
         const accumulated = pendingRef.current;
         setTurns((prev) => {
           const last = prev[prev.length - 1];
@@ -70,13 +86,26 @@ export default function ChatPanel({ backend, lesson, ttsMode, kokoroVoice, voice
               onLevel: setMouth,
             });
           }
-          ttsBufRef.current += text;
+          ttsBufRef.current += safeStripped;
           const { sentences, remainder } = extractSentences(ttsBufRef.current, false);
           ttsBufRef.current = remainder;
           for (const s of sentences) ttsQueueRef.current.enqueue(s);
         }
       },
       onDone: () => {
+        // Flush any trailing raw — if it's an unclosed `[`, it's
+        // just an LLM stutter; render literally rather than swallow.
+        if (rawBufRef.current) {
+          const { stripped, emotions } = extractEmotions(rawBufRef.current);
+          for (const e of emotions) setEmotion(e);
+          if (stripped) {
+            pendingRef.current += stripped;
+            if (ttsModeRef.current === "kokoro" && kokoroVoiceRef.current) {
+              ttsBufRef.current += stripped;
+            }
+          }
+          rawBufRef.current = "";
+        }
         const text = pendingRef.current;
         pendingRef.current = "";
         busyRef.current = false;
@@ -134,10 +163,12 @@ export default function ChatPanel({ backend, lesson, ttsMode, kokoroVoice, voice
   useEffect(() => {
     wsRef.current?.send({ type: "configure", backend, lesson });
     setTurns([]);
-    // Reset per-conversation TTS state.
+    // Reset per-conversation TTS + emotion state.
     ttsQueueRef.current?.cancel();
     ttsQueueRef.current = null;
     ttsBufRef.current = "";
+    rawBufRef.current = "";
+    setEmotion("neutral");
   }, [backend, lesson]);
 
   useEffect(() => {
@@ -160,10 +191,12 @@ export default function ChatPanel({ backend, lesson, ttsMode, kokoroVoice, voice
 
   const sendUser = (text: string) => {
     if (!text.trim() || busy) return;
-    // Mid-reply interrupt: kill any pending TTS from the previous turn.
+    // Mid-reply interrupt: kill any pending TTS + emotion buffers
+    // from the previous turn.
     ttsQueueRef.current?.cancel();
     ttsQueueRef.current = null;
     ttsBufRef.current = "";
+    rawBufRef.current = "";
     setTurns((prev) => [...prev, { role: "student", text }]);
     pendingRef.current = "";
     busyRef.current = true;
