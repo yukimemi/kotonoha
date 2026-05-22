@@ -7,6 +7,8 @@ import {
   type VRMAnimation,
   createVRMAnimationClip,
 } from "@pixiv/three-vrm-animation";
+import type { Emotion } from "../voice/emotion";
+import { type GestureName, effectiveGesture, gestureUrl, loadGestureClip } from "./gesture";
 
 type Props = {
   /** Path to the VRM file (served by the backend under /avatars/...). */
@@ -16,7 +18,12 @@ type Props = {
   /** 0-1 mouth open value, driven by TTS in the parent component. */
   mouth: number;
   /** Emotion preset key; see VRM Expression names. */
-  emotion?: "neutral" | "happy" | "sad" | "surprised" | "angry" | "relaxed";
+  emotion?: Emotion;
+  /** Mixamo talk gesture to play while she's speaking (mouth > 0).
+   *  "auto" follows the current emotion; everything else pins to a
+   *  specific gesture. When mouth returns to 0 we cross-fade back
+   *  to the idle vrma. */
+  gesture?: GestureName;
 };
 
 export default function VrmViewer({
@@ -24,14 +31,17 @@ export default function VrmViewer({
   animationSrc = "/avatars/idle.vrma",
   mouth,
   emotion = "neutral",
+  gesture = "auto",
 }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const vrmRef = useRef<VRM | null>(null);
   const mouthRef = useRef(0);
-  const emotionRef = useRef(emotion);
+  const emotionRef = useRef<Emotion>(emotion);
+  const gestureRef = useRef<GestureName>(gesture);
 
   useEffect(() => { mouthRef.current = mouth; }, [mouth]);
   useEffect(() => { emotionRef.current = emotion; }, [emotion]);
+  useEffect(() => { gestureRef.current = gesture; }, [gesture]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -74,6 +84,13 @@ export default function VrmViewer({
 
     let cancelled = false;
     let mixer: THREE.AnimationMixer | null = null;
+    let idleAction: THREE.AnimationAction | null = null;
+    let gestureAction: THREE.AnimationAction | null = null;
+    // The name we're *intending* to play. May differ briefly from
+    // gestureAction's clip while a load is in flight — used as the
+    // staleness guard so a slow .fbx load doesn't start playing
+    // after the user already picked something else.
+    let activeGestureName: GestureName | null = null;
     loader.load(
       src,
       async (gltf) => {
@@ -85,14 +102,17 @@ export default function VrmViewer({
         scene.add(vrm.scene);
         vrmRef.current = vrm;
 
-        // Try to load a .vrma idle animation. Falls back to manual rest pose.
+        // Idle vrma drives the body when she's not speaking. The
+        // mixer is shared with the Mixamo gesture clips so we can
+        // cross-fade between idle and talk in a single graph.
+        mixer = new THREE.AnimationMixer(vrm.scene);
         try {
           const animGltf = await loader.loadAsync(animationSrc);
           const anims = animGltf.userData.vrmAnimations as VRMAnimation[] | undefined;
           if (anims && anims.length > 0) {
             const clip = createVRMAnimationClip(anims[0], vrm);
-            mixer = new THREE.AnimationMixer(vrm.scene);
-            mixer.clipAction(clip).play();
+            idleAction = mixer.clipAction(clip);
+            idleAction.play();
             return;
           }
         } catch {
@@ -104,6 +124,45 @@ export default function VrmViewer({
       (err) => console.error("VRM load failed", err),
     );
 
+    // Drive the gesture crossfade from the same render loop that
+    // updates the mixer. Reads gestureRef/emotionRef/mouthRef at
+    // each tick so prop changes flow through without re-running
+    // the effect (which would tear down + reload the VRM).
+    const updateGesture = () => {
+      const vrm = vrmRef.current;
+      if (!vrm || !mixer) return;
+      const talking = mouthRef.current > 0.05;
+      const wanted: GestureName | null = talking
+        ? effectiveGesture(gestureRef.current, emotionRef.current)
+        : null;
+      if (wanted === activeGestureName) return;
+      activeGestureName = wanted;
+      if (!wanted) {
+        // Mouth closed — fade gesture out, fade idle back in.
+        if (gestureAction) {
+          const dying = gestureAction;
+          gestureAction = null;
+          dying.fadeOut(0.25);
+        }
+        idleAction?.reset().fadeIn(0.25).play();
+        return;
+      }
+      // Crossfade idle out + gesture in. The clip might already be
+      // loading from a previous tick; the staleness check inside
+      // .then guards against the late arrival of a clip the user
+      // already moved past.
+      loadGestureClip(gestureUrl(wanted), vrm)
+        .then((clip) => {
+          if (activeGestureName !== wanted || !mixer) return;
+          if (gestureAction) gestureAction.fadeOut(0.25);
+          const a = mixer.clipAction(clip);
+          a.reset().setLoop(THREE.LoopRepeat, Infinity).fadeIn(0.25).play();
+          gestureAction = a;
+          idleAction?.fadeOut(0.25);
+        })
+        .catch((e) => console.warn(`gesture load failed: ${wanted}`, e));
+    };
+
     const clock = new THREE.Clock();
     let raf = 0;
     let nextBlinkAt = 2 + Math.random() * 3;
@@ -111,6 +170,7 @@ export default function VrmViewer({
     const tick = () => {
       const dt = clock.getDelta();
       if (mixer) mixer.update(dt);
+      updateGesture();
       const vrm = vrmRef.current;
       if (vrm) {
         const t = clock.elapsedTime;
@@ -142,9 +202,11 @@ export default function VrmViewer({
             }
           }
         }
-        // Tiny idle motion — applied on top of VRMA so the avatar
-        // still looks alive when she's "still".
-        if (!mixer) {
+        // Tiny idle motion — applied only when nothing else is
+        // driving the body (no idle.vrma loaded *and* no gesture
+        // active). Without this guard the head sway would fight
+        // the Mixamo gesture rotations.
+        if (!idleAction && !gestureAction) {
           vrm.scene.position.y = Math.sin(t * 1.3) * 0.005;
           const head = vrm.humanoid?.getNormalizedBoneNode(VRMHumanBoneName.Head);
           if (head) {
