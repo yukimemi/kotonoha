@@ -16,7 +16,7 @@ type Props = {
   /** 0-1 mouth open value, driven by TTS in the parent component. */
   mouth: number;
   /** Emotion preset key; see VRM Expression names. */
-  emotion?: "neutral" | "happy" | "sad" | "surprised";
+  emotion?: "neutral" | "happy" | "sad" | "surprised" | "angry" | "relaxed";
 };
 
 export default function VrmViewer({
@@ -119,7 +119,10 @@ export default function VrmViewer({
           // Mouth shape — VRM 1.0 uses "aa", 0.x uses "a"; setting both is harmless.
           exp.setValue("aa", mouthRef.current);
           exp.setValue("a",  mouthRef.current);
-          for (const e of ["happy", "sad", "surprised"]) {
+          // Drive every VRM standard emotion expression. "neutral"
+          // intentionally has no slot — it's the absence of the
+          // others, which collapses to a blank face.
+          for (const e of ["happy", "sad", "surprised", "angry", "relaxed"]) {
             exp.setValue(e, emotionRef.current === e ? 1 : 0);
           }
           // Blink: ~once every 3-5s, ~150ms close+open

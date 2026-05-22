@@ -29,6 +29,7 @@ export default function App() {
   );
   const [browserVoices, setBrowserVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [mouth, setMouth] = useState(0);
+  const [emotion, setEmotion] = useState<import("./voice/emotion").Emotion>("neutral");
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
@@ -124,7 +125,7 @@ export default function App() {
 
       <section className="relative shrink-0 overflow-hidden bg-gradient-to-b from-kotonoha-leaf/10 to-kotonoha-paper md:h-full md:w-1/2 md:shrink h-[38vh] min-h-[220px]">
         {avatar ? (
-          <VrmViewer src={`/avatars/${avatar}`} mouth={mouth} />
+          <VrmViewer src={`/avatars/${avatar}`} mouth={mouth} emotion={emotion} />
         ) : (
           <div className="flex h-full items-center justify-center p-6 text-center text-sm text-kotonoha-ink/60">
             avatars/ フォルダに *.vrm を置いてリロードしてね。<br />
@@ -149,6 +150,7 @@ export default function App() {
             kokoroVoice={kokoroVoice}
             voicevoxSpeaker={voicevoxSpeaker}
             setMouth={setMouth}
+            setEmotion={setEmotion}
           />
         )}
       </section>
