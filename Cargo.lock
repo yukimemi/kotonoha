@@ -467,6 +467,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d07550c9036bf2ae0c684c4297d503f838287c83c53686d05370d0e139ae570"
 
 [[package]]
+name = "console"
+version = "0.16.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d64e8af5551369d19cf50138de61f1c42074ab970f74e99be916646777f8fc87"
+dependencies = [
+ "encode_unicode",
+ "libc",
+ "unicode-width",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "core-foundation"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -598,6 +610,12 @@ dependencies = [
  "quote",
  "syn",
 ]
+
+[[package]]
+name = "encode_unicode"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "34aa73646ffb006b8f5147f3dc182bd4bcb190227ce861fc4a4844bf8e3cb2c0"
 
 [[package]]
 name = "equivalent"
@@ -1158,6 +1176,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "indicatif"
+version = "0.18.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "25470f23803092da7d239834776d653104d551bc4d7eacaf31e6837854b8e9eb"
+dependencies = [
+ "console",
+ "portable-atomic",
+ "unicode-width",
+ "unit-prefix",
+ "web-time",
+]
+
+[[package]]
 name = "ipnet"
 version = "2.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1209,7 +1240,7 @@ dependencies = [
 
 [[package]]
 name = "kotonoha-core"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1228,7 +1259,7 @@ dependencies = [
 
 [[package]]
 name = "kotonoha-llm"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1245,12 +1276,13 @@ dependencies = [
 
 [[package]]
 name = "kotonoha-server"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "anyhow",
  "axum",
  "clap",
  "futures",
+ "indicatif",
  "kotonoha-core",
  "kotonoha-llm",
  "kotonoha-tts",
@@ -1267,7 +1299,7 @@ dependencies = [
 
 [[package]]
 name = "kotonoha-tts"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "anyhow",
  "hound",
@@ -2988,6 +3020,18 @@ name = "unicode-segmentation"
 version = "1.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9629274872b2bfaf8d66f5f15725007f635594914870f65218920345aa11aa8c"
+
+[[package]]
+name = "unicode-width"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b4ac048d71ede7ee76d585517add45da530660ef4390e49b098733c6e897f254"
+
+[[package]]
+name = "unit-prefix"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "81e544489bf3d8ef66c953931f56617f423cd4b5494be343d9b9d3dda037b9a3"
 
 [[package]]
 name = "untrusted"

@@ -308,6 +308,7 @@ async fn synth_voicevox(
         .get_or_try_init(|| async {
             VoicevoxTts::load(&kotonoha_tts::voicevox::TtsConfig {
                 speaker_ids: vv_cfg.preload_speakers.clone(),
+                on_event: None,
             })
             .await
         })

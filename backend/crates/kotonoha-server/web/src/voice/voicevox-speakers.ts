@@ -36,3 +36,24 @@ export const VOICEVOX_SPEAKERS: VoicevoxSpeaker[] = [
 export function speakerCharacter(id: number): string | undefined {
   return VOICEVOX_SPEAKERS.find((s) => s.id === id)?.character;
 }
+
+// Visual marker per character. The official VOICEVOX character
+// portraits ship under restrictive redistribution terms, so we
+// don't bundle or hot-link them — these emoji stand-ins are
+// cosmetic only and give the dropdown a little personality
+// without making any visual-likeness claim. Falls back to a
+// generic speaker emoji for any character not in the curated
+// table (e.g. when a user widens the speaker list at runtime).
+export const CHARACTER_ICON: Record<string, string> = {
+  "春日部つむぎ": "🎀",
+  "四国めたん": "💗",
+  "ずんだもん": "🌱",
+  "雨晴はう": "☔",
+  "冥鳴ひまり": "🌟",
+  "玄野武宏": "🎓",
+};
+
+export function speakerIcon(id: number): string {
+  const c = speakerCharacter(id);
+  return (c && CHARACTER_ICON[c]) ?? "🗣️";
+}
