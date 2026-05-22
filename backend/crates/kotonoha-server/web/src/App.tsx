@@ -5,6 +5,7 @@ import VrmViewer from "./avatar/VrmViewer";
 import ChatPanel from "./chat/ChatPanel";
 import { listVoices, setPreferredVoice, speak } from "./voice/speech";
 import { VOICEVOX_SPEAKERS, speakerCharacter } from "./voice/voicevox-speakers";
+import { previewKokoroVoice, previewVoicevoxSpeaker } from "./voice/preview";
 import { usePersistedState } from "./usePersistedState";
 
 export default function App() {
@@ -87,6 +88,7 @@ export default function App() {
     info,
     backend, lesson, avatar, ttsMode, browserVoice, browserVoices, kokoroVoice,
     voicevoxSpeaker, voicevoxAvailable,
+    setMouth,
     onBackend: setBackend,
     onLesson: setLesson,
     onAvatar: setAvatar,
@@ -163,6 +165,8 @@ type SelectorsProps = {
   kokoroVoice: string;
   voicevoxSpeaker: number;
   voicevoxAvailable: boolean;
+  /** Lets the in-settings preview drive the avatar's mouth too. */
+  setMouth: (v: number) => void;
   onBackend: (v: string) => void;
   onLesson: (v: string) => void;
   onAvatar: (v: string) => void;
@@ -176,6 +180,23 @@ type SelectorsProps = {
 
 function Selectors(p: SelectorsProps) {
   const kokoroAvailable = (p.info.voice.kokoro_voices?.length ?? 0) > 0;
+
+  // Centralize the "store + preview" pairing so the stacked (mobile)
+  // and pill-row (desktop) layouts can't drift — both call the same
+  // handler, including the mouth-level wiring for the avatar.
+  const handleKokoroChange = (v: string) => {
+    p.onKokoroVoice(v);
+    previewKokoroVoice(v, { onLevel: p.setMouth });
+  };
+  const handleBrowserVoiceChange = (v: string) => {
+    p.onBrowserVoice(v);
+    speak("Hi! Nice to meet you.");
+  };
+  const handleVoicevoxChange = (raw: string) => {
+    const id = parseInt(raw, 10);
+    p.onVoicevoxSpeaker(id);
+    previewVoicevoxSpeaker(id, { onLevel: p.setMouth });
+  };
 
   if (p.stacked) {
     // Mobile: one row per setting, full-width, with a small label.
@@ -209,16 +230,13 @@ function Selectors(p: SelectorsProps) {
         </Row>
         <Row label="ボイス">
           {p.ttsMode === "kokoro" ? (
-            <SelectBare value={p.kokoroVoice} onChange={p.onKokoroVoice}>
+            <SelectBare value={p.kokoroVoice} onChange={handleKokoroChange}>
               {(p.info.voice.kokoro_voices ?? []).map((v) => (
                 <option key={v} value={v}>{v}</option>
               ))}
             </SelectBare>
           ) : (
-            <SelectBare value={p.browserVoice} onChange={(v) => {
-              p.onBrowserVoice(v);
-              speak("Hi! Nice to meet you.");
-            }}>
+            <SelectBare value={p.browserVoice} onChange={handleBrowserVoiceChange}>
               {p.browserVoices.length === 0 ? <option value="">(no voices)</option> :
                 p.browserVoices.map((v) => <option key={v.name} value={v.name}>{v.name}</option>)}
             </SelectBare>
@@ -228,7 +246,7 @@ function Selectors(p: SelectorsProps) {
           <Row label="JA ボイス">
             <SelectBare
               value={String(p.voicevoxSpeaker)}
-              onChange={(v) => p.onVoicevoxSpeaker(parseInt(v, 10))}
+              onChange={handleVoicevoxChange}
             >
               {VOICEVOX_SPEAKERS.map((s) => (
                 <option key={s.id} value={s.id}>
@@ -271,17 +289,14 @@ function Selectors(p: SelectorsProps) {
       </select>
       {p.ttsMode === "kokoro" ? (
         <select className={cls + " truncate"} value={p.kokoroVoice}
-          onChange={(e) => p.onKokoroVoice(e.target.value)}>
+          onChange={(e) => handleKokoroChange(e.target.value)}>
           {(p.info.voice.kokoro_voices ?? []).map((v) => (
             <option key={v} value={v}>{v}</option>
           ))}
         </select>
       ) : (
         <select className={cls + " truncate"} value={p.browserVoice}
-          onChange={(e) => {
-            p.onBrowserVoice(e.target.value);
-            speak("Hi! Nice to meet you.");
-          }}>
+          onChange={(e) => handleBrowserVoiceChange(e.target.value)}>
           {p.browserVoices.length === 0 ? <option value="">(no voices)</option> :
             p.browserVoices.map((v) => <option key={v.name} value={v.name}>{v.name}</option>)}
         </select>
@@ -291,7 +306,7 @@ function Selectors(p: SelectorsProps) {
           className={cls + " truncate"}
           title="VOICEVOX speaker (for Japanese sentences)"
           value={String(p.voicevoxSpeaker)}
-          onChange={(e) => p.onVoicevoxSpeaker(parseInt(e.target.value, 10))}
+          onChange={(e) => handleVoicevoxChange(e.target.value)}
         >
           {VOICEVOX_SPEAKERS.map((s) => (
             <option key={s.id} value={s.id}>
