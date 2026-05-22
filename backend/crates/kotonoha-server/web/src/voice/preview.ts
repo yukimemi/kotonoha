@@ -14,6 +14,20 @@ const SAMPLE_JA = "こんにちは、はじめまして。";
 
 let current: { cancel: () => void } | null = null;
 
+// A single AudioContext is reused across previews. Chrome caps live
+// contexts (~50) and tears down ones that hit the limit, which would
+// surface as previews silently going mute after rapid dropdown
+// changes. The context is created lazily so the page load doesn't
+// pay the cost when no preview has played yet.
+let sharedCtx: AudioContext | null = null;
+function getCtx(): AudioContext {
+  if (!sharedCtx) {
+    sharedCtx = new (window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+  }
+  return sharedCtx;
+}
+
 type Opts = {
   /** Optional 0-1 mouth level callback while the sample plays. */
   onLevel?: (v: number) => void;
@@ -73,8 +87,16 @@ async function playBlob(
   handle: { cancel: () => void },
 ): Promise<void> {
   const url = URL.createObjectURL(blob);
-  const ctx = new (window.AudioContext ||
-    (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+  const ctx = getCtx();
+  // Browsers can auto-suspend the context after a tab loses focus;
+  // resume on demand so the next preview isn't silently inaudible.
+  if (ctx.state === "suspended") {
+    try {
+      await ctx.resume();
+    } catch {
+      // best-effort; playback will still attempt to start
+    }
+  }
   const audio = new Audio(url);
 
   const source = ctx.createMediaElementSource(audio);
@@ -104,7 +126,17 @@ async function playBlob(
       cancelAnimationFrame(raf);
       onLevel?.(0);
       URL.revokeObjectURL(url);
-      ctx.close().catch(() => {});
+      // Tear down the per-preview graph nodes so they're eligible
+      // for GC. The shared ctx itself stays alive for the next
+      // preview — closing it here is what tripped the original
+      // resource leak (createMediaElementSource on a closed ctx
+      // throws on the *next* call).
+      try {
+        source.disconnect();
+        analyser.disconnect();
+      } catch {
+        // already disconnected
+      }
       if (current === handle) current = null;
       resolve();
     };

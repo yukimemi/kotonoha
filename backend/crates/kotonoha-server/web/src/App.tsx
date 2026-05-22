@@ -181,6 +181,23 @@ type SelectorsProps = {
 function Selectors(p: SelectorsProps) {
   const kokoroAvailable = (p.info.voice.kokoro_voices?.length ?? 0) > 0;
 
+  // Centralize the "store + preview" pairing so the stacked (mobile)
+  // and pill-row (desktop) layouts can't drift — both call the same
+  // handler, including the mouth-level wiring for the avatar.
+  const handleKokoroChange = (v: string) => {
+    p.onKokoroVoice(v);
+    previewKokoroVoice(v, { onLevel: p.setMouth });
+  };
+  const handleBrowserVoiceChange = (v: string) => {
+    p.onBrowserVoice(v);
+    speak("Hi! Nice to meet you.");
+  };
+  const handleVoicevoxChange = (raw: string) => {
+    const id = parseInt(raw, 10);
+    p.onVoicevoxSpeaker(id);
+    previewVoicevoxSpeaker(id, { onLevel: p.setMouth });
+  };
+
   if (p.stacked) {
     // Mobile: one row per setting, full-width, with a small label.
     return (
@@ -213,19 +230,13 @@ function Selectors(p: SelectorsProps) {
         </Row>
         <Row label="ボイス">
           {p.ttsMode === "kokoro" ? (
-            <SelectBare value={p.kokoroVoice} onChange={(v) => {
-              p.onKokoroVoice(v);
-              previewKokoroVoice(v, { onLevel: p.setMouth });
-            }}>
+            <SelectBare value={p.kokoroVoice} onChange={handleKokoroChange}>
               {(p.info.voice.kokoro_voices ?? []).map((v) => (
                 <option key={v} value={v}>{v}</option>
               ))}
             </SelectBare>
           ) : (
-            <SelectBare value={p.browserVoice} onChange={(v) => {
-              p.onBrowserVoice(v);
-              speak("Hi! Nice to meet you.");
-            }}>
+            <SelectBare value={p.browserVoice} onChange={handleBrowserVoiceChange}>
               {p.browserVoices.length === 0 ? <option value="">(no voices)</option> :
                 p.browserVoices.map((v) => <option key={v.name} value={v.name}>{v.name}</option>)}
             </SelectBare>
@@ -235,11 +246,7 @@ function Selectors(p: SelectorsProps) {
           <Row label="JA ボイス">
             <SelectBare
               value={String(p.voicevoxSpeaker)}
-              onChange={(v) => {
-                const id = parseInt(v, 10);
-                p.onVoicevoxSpeaker(id);
-                previewVoicevoxSpeaker(id, { onLevel: p.setMouth });
-              }}
+              onChange={handleVoicevoxChange}
             >
               {VOICEVOX_SPEAKERS.map((s) => (
                 <option key={s.id} value={s.id}>
@@ -282,20 +289,14 @@ function Selectors(p: SelectorsProps) {
       </select>
       {p.ttsMode === "kokoro" ? (
         <select className={cls + " truncate"} value={p.kokoroVoice}
-          onChange={(e) => {
-            p.onKokoroVoice(e.target.value);
-            previewKokoroVoice(e.target.value, { onLevel: p.setMouth });
-          }}>
+          onChange={(e) => handleKokoroChange(e.target.value)}>
           {(p.info.voice.kokoro_voices ?? []).map((v) => (
             <option key={v} value={v}>{v}</option>
           ))}
         </select>
       ) : (
         <select className={cls + " truncate"} value={p.browserVoice}
-          onChange={(e) => {
-            p.onBrowserVoice(e.target.value);
-            speak("Hi! Nice to meet you.");
-          }}>
+          onChange={(e) => handleBrowserVoiceChange(e.target.value)}>
           {p.browserVoices.length === 0 ? <option value="">(no voices)</option> :
             p.browserVoices.map((v) => <option key={v.name} value={v.name}>{v.name}</option>)}
         </select>
@@ -305,11 +306,7 @@ function Selectors(p: SelectorsProps) {
           className={cls + " truncate"}
           title="VOICEVOX speaker (for Japanese sentences)"
           value={String(p.voicevoxSpeaker)}
-          onChange={(e) => {
-            const id = parseInt(e.target.value, 10);
-            p.onVoicevoxSpeaker(id);
-            previewVoicevoxSpeaker(id, { onLevel: p.setMouth });
-          }}
+          onChange={(e) => handleVoicevoxChange(e.target.value)}
         >
           {VOICEVOX_SPEAKERS.map((s) => (
             <option key={s.id} value={s.id}>
