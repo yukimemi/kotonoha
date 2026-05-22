@@ -30,12 +30,42 @@ use voicevox_dyn::{AccelerationMode, VoiceVox};
 /// persona kotonoha is built around.
 pub const DEFAULT_SPEAKER_ID: u32 = 8;
 
-#[derive(Debug, Clone)]
+/// Coarse-grained progress events emitted during [`Tts::load`].
+///
+/// Used by `kotonoha setup-voicevox` to drive an indicatif progress
+/// bar; the FFI download itself doesn't surface bytes-transferred,
+/// so the bar between `EngineReady` events is a spinner and the
+/// per-speaker bar is incremented one tick per [`SpeakerLoaded`].
+#[derive(Debug, Clone, Copy)]
+pub enum LoadEvent {
+    /// Core library + ONNX runtime downloaded (if needed) and the
+    /// engine has finished `init`. Speaker model loads start next.
+    EngineReady,
+    /// A speaker model finished loading.
+    SpeakerLoaded { id: u32 },
+}
+
+pub type LoadEventCallback = std::sync::Arc<dyn Fn(LoadEvent) + Send + Sync>;
+
+#[derive(Clone)]
 pub struct TtsConfig {
     /// Speakers (numeric ids) to pre-load on engine init. Loading
     /// extra speakers on demand still works; pre-loaded ones just
     /// avoid the first-call latency.
     pub speaker_ids: Vec<u32>,
+    /// Optional callback invoked from the blocking load worker on
+    /// each [`LoadEvent`]. Implementations must be cheap + Send +
+    /// Sync since the worker is a tokio blocking task.
+    pub on_event: Option<LoadEventCallback>,
+}
+
+impl std::fmt::Debug for TtsConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TtsConfig")
+            .field("speaker_ids", &self.speaker_ids)
+            .field("on_event", &self.on_event.as_ref().map(|_| "<callback>"))
+            .finish()
+    }
 }
 
 /// Thin handle. `voicevox-dyn` uses interior FFI state; we wrap
@@ -59,6 +89,7 @@ impl Tts {
 
         // `VoiceVox::load` is sync FFI; run on a blocking worker.
         let speaker_ids = cfg.speaker_ids.clone();
+        let on_event = cfg.on_event.clone();
         let vv = tokio::task::spawn_blocking(move || -> anyhow::Result<VoiceVox> {
             let mut vv = VoiceVox::load().map_err(|e| anyhow::anyhow!("VoiceVox::load: {e:?}"))?;
             let threads = std::thread::available_parallelism()
@@ -66,9 +97,15 @@ impl Tts {
                 .unwrap_or(2);
             vv.init(AccelerationMode::Auto, threads, false)
                 .map_err(|e| anyhow::anyhow!("VoiceVox::init: {e:?}"))?;
+            if let Some(cb) = &on_event {
+                cb(LoadEvent::EngineReady);
+            }
             for id in &speaker_ids {
                 vv.load_model(*id)
                     .map_err(|e| anyhow::anyhow!("load speaker {id}: {e:?}"))?;
+                if let Some(cb) = &on_event {
+                    cb(LoadEvent::SpeakerLoaded { id: *id });
+                }
             }
             Ok(vv)
         })

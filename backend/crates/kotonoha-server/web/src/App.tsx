@@ -4,7 +4,7 @@ import type { ServerInfo } from "./types";
 import VrmViewer from "./avatar/VrmViewer";
 import ChatPanel from "./chat/ChatPanel";
 import { listVoices, setPreferredVoice, speak } from "./voice/speech";
-import { VOICEVOX_SPEAKERS, speakerCharacter } from "./voice/voicevox-speakers";
+import { VOICEVOX_SPEAKERS, speakerCharacter, speakerIcon } from "./voice/voicevox-speakers";
 import { previewKokoroVoice, previewVoicevoxSpeaker } from "./voice/preview";
 import { usePersistedState } from "./usePersistedState";
 
@@ -249,8 +249,8 @@ function Selectors(p: SelectorsProps) {
               onChange={handleVoicevoxChange}
             >
               {VOICEVOX_SPEAKERS.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.character} ({s.style})
+                <option key={s.id} value={s.id} title={s.hint}>
+                  {speakerIcon(s.id)} {s.character} ({s.style})
                 </option>
               ))}
             </SelectBare>
@@ -309,8 +309,8 @@ function Selectors(p: SelectorsProps) {
           onChange={(e) => handleVoicevoxChange(e.target.value)}
         >
           {VOICEVOX_SPEAKERS.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.character} ({s.style})
+            <option key={s.id} value={s.id} title={s.hint}>
+              {speakerIcon(s.id)} {s.character} ({s.style})
             </option>
           ))}
         </select>
@@ -329,6 +329,7 @@ function VoicevoxCredit({ speakerId, stacked }: { speakerId: number; stacked?: b
   // whenever the engine is used, even for ids outside our table.
   const character = speakerCharacter(speakerId);
   const label = character ? `VOICEVOX:${character}` : "VOICEVOX";
+  const icon = speakerIcon(speakerId);
   if (stacked) {
     return (
       <>
@@ -339,7 +340,7 @@ function VoicevoxCredit({ speakerId, stacked }: { speakerId: number; stacked?: b
           rel="noreferrer"
           className="font-en text-xs text-kotonoha-ink/70 hover:underline"
         >
-          {label}
+          <span aria-hidden="true">{icon}</span> {label}
         </a>
       </>
     );
@@ -352,7 +353,7 @@ function VoicevoxCredit({ speakerId, stacked }: { speakerId: number; stacked?: b
       className="ml-1 self-center font-en text-xs text-kotonoha-ink/60 hover:underline"
       title="VOICEVOX 利用規約に基づく必須クレジット表示"
     >
-      {label}
+      <span aria-hidden="true">{icon}</span> {label}
     </a>
   );
 }
