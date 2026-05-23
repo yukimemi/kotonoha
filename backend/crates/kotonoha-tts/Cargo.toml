@@ -12,7 +12,9 @@ authors.workspace      = true
 [dependencies]
 anyhow      = { workspace = true }
 hound       = { workspace = true }
+reqwest     = { workspace = true }
 serde       = { workspace = true }
+serde_json  = { workspace = true }
 tokio       = { workspace = true }
 tracing     = { workspace = true }
 
