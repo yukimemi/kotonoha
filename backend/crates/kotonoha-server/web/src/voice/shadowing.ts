@@ -74,10 +74,13 @@ export type DiffWord = {
 };
 
 export function computeDiff(target: string, heard: string): DiffWord[] {
-  const t = target.trim().split(/\s+/);
-  const h = heard.trim().toLowerCase().split(/\s+/);
-  // Build a quick lookup: bag of normalized heard words. We can
-  // afford O(n²) for short sentences — these are <20 words.
+  const t = target.trim().split(/\s+/).filter((w) => w.length > 0);
+  // Filter empties so an empty `heard` ("" or whitespace-only)
+  // becomes `[]` instead of `[""]` — otherwise the first target
+  // word would be reported as a "wrong" substitution with an
+  // empty tooltip instead of being marked "missed".
+  const h = heard.trim().toLowerCase().split(/\s+/).filter((w) => w.length > 0);
+  // O(n²) is fine for short sentences (<20 words).
   const norm = (w: string) => w.toLowerCase().replace(/[^a-z0-9'’]/g, "");
   const heardUsed = new Array<boolean>(h.length).fill(false);
   const out: DiffWord[] = [];
@@ -100,8 +103,12 @@ export function computeDiff(target: string, heard: string): DiffWord[] {
     if (found >= 0) {
       heardUsed[found] = true;
       out.push({ target: t[i], status: "ok" });
-    } else if (i < h.length) {
-      // There's *something* at this position, just not the right thing.
+    } else if (i < h.length && !heardUsed[i]) {
+      // There's something at this position, just not the right
+      // thing — mark `h[i]` as used so a *later* target word
+      // can't also claim it via the shifted scan and end up
+      // showing as a separate match.
+      heardUsed[i] = true;
       out.push({ target: t[i], status: "wrong", heard: h[i] });
     } else {
       out.push({ target: t[i], status: "missed" });
