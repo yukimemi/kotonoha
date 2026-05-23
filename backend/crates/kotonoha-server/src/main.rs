@@ -309,6 +309,13 @@ async fn synth_voicevox(
             VoicevoxTts::load(&kotonoha_tts::voicevox::TtsConfig {
                 speaker_ids: vv_cfg.preload_speakers.clone(),
                 on_event: None,
+                // The server start path can't show a license prompt
+                // (likely launched non-interactively / by systemd).
+                // If the assets aren't there, the load() helper will
+                // bail with a clear "run kotonoha setup-voicevox"
+                // message instead of silently auto-accepting on the
+                // user's behalf.
+                license_accepted: false,
             })
             .await
         })

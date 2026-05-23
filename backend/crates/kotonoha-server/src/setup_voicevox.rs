@@ -31,6 +31,12 @@ pub struct SetupVoicevoxArgs {
     /// when scripting setup from CI where TTY width is unstable.
     #[arg(long)]
     pub no_progress: bool,
+
+    /// Accept the VOICEVOX licenses non-interactively. Without this,
+    /// the first run shows the license URLs and prompts y/N before
+    /// starting the ~700 MB download.
+    #[arg(long, short = 'y', alias = "yes")]
+    pub accept_license: bool,
 }
 
 pub async fn run(config: &Config, args: SetupVoicevoxArgs) -> anyhow::Result<()> {
@@ -47,17 +53,31 @@ pub async fn run(config: &Config, args: SetupVoicevoxArgs) -> anyhow::Result<()>
         .speakers
         .unwrap_or_else(|| vv_cfg.preload_speakers.clone());
 
-    // voicevox-dyn doesn't surface byte-level progress, so the
-    // download bar is a spinner — accurate completion signal, no
-    // percent. The per-speaker bar IS accurate (we count
-    // load_model calls ourselves below). --no-progress falls back
-    // to plain eprintln so log scrapers stay happy.
+    // License gate. Skip if the assets are already on disk (we know
+    // the user accepted previously, downloader won't run again).
+    // Skip if the user opted in via --accept-license. Otherwise
+    // print the URLs and ask interactively.
+    let license_accepted = if assets_already_present()? || args.accept_license {
+        true
+    } else {
+        prompt_license_acceptance()?
+    };
+    if !license_accepted {
+        anyhow::bail!("VOICEVOX 利用規約に同意されなかったため終了します。");
+    }
+
+    // voicevox doesn't surface byte-level progress, so the download
+    // bar is a spinner — accurate completion signal, no percent. The
+    // per-speaker bar IS accurate (we count load_model calls
+    // ourselves below). --no-progress falls back to plain eprintln
+    // so log scrapers stay happy.
     if args.no_progress {
         eprintln!("downloading VOICEVOX core + ONNX runtime…");
         eprintln!("preloading speaker models: {speakers:?}");
         let tts_cfg = VoicevoxConfig {
             speaker_ids: speakers.clone(),
             on_event: None,
+            license_accepted,
         };
         let _tts = VoicevoxTts::load(&tts_cfg).await?;
     } else {
@@ -96,6 +116,7 @@ pub async fn run(config: &Config, args: SetupVoicevoxArgs) -> anyhow::Result<()>
         let tts_cfg = VoicevoxConfig {
             speaker_ids: speakers.clone(),
             on_event: Some(on_event),
+            license_accepted,
         };
         let _tts = VoicevoxTts::load(&tts_cfg).await?;
         preload.finish_with_message("done");
@@ -110,4 +131,76 @@ pub async fn run(config: &Config, args: SetupVoicevoxArgs) -> anyhow::Result<()>
     eprintln!("  surface `VOICEVOX:<character>` in any UI that");
     eprintln!("  exposes a speaker. See https://voicevox.hiroshiba.jp");
     Ok(())
+}
+
+/// Walk the four sibling asset directories voicevox_downloader
+/// produces. If they're all present we know a previous run already
+/// completed (and therefore that the user already accepted the
+/// licenses); skip the interactive prompt.
+fn assets_already_present() -> anyhow::Result<bool> {
+    let exe_dir = std::env::current_exe()?
+        .parent()
+        .ok_or_else(|| anyhow!("exe has no parent dir"))?
+        .to_path_buf();
+    Ok(["c_api", "onnxruntime", "models", "dict"]
+        .iter()
+        .all(|d| exe_dir.join(d).is_dir()))
+}
+
+/// Print the VOICEVOX license URLs and read a y/N from stdin.
+/// Returns true only on an explicit "y" / "yes" (case-insensitive).
+fn prompt_license_acceptance() -> anyhow::Result<bool> {
+    use std::io::{BufRead, Write};
+    let mut stderr = std::io::stderr();
+    writeln!(stderr)?;
+    writeln!(
+        stderr,
+        "─────────────────────────────────────────────────────────"
+    )?;
+    writeln!(
+        stderr,
+        "VOICEVOX のセットアップには以下の規約への同意が必要です。"
+    )?;
+    writeln!(stderr)?;
+    writeln!(
+        stderr,
+        "  公式ページ (規約 + 各キャラクター個別ページへのリンク):"
+    )?;
+    writeln!(stderr, "    https://voicevox.hiroshiba.jp/term/")?;
+    writeln!(stderr)?;
+    writeln!(stderr, "  代表的なキャラクターの利用規約:")?;
+    writeln!(
+        stderr,
+        "    春日部つむぎ:   https://tsumugi-official.studio.site/rule"
+    )?;
+    writeln!(stderr, "    四国めたん / ずんだもん 等:")?;
+    writeln!(
+        stderr,
+        "                    https://zunko.jp/con_ongen_kiyaku.html"
+    )?;
+    writeln!(
+        stderr,
+        "    冥鳴ひまり:     https://meimeihimari.wixsite.com/himari/terms-of-use"
+    )?;
+    writeln!(stderr)?;
+    writeln!(stderr, "  ・商用 / 非商用ともに利用可、ただし生成音声には")?;
+    writeln!(
+        stderr,
+        "    「VOICEVOX:<キャラクター名>」のクレジット表記が必須。"
+    )?;
+    writeln!(
+        stderr,
+        "  ・約 700 MB のモデル + ランタイムを kotonoha.exe と同じ"
+    )?;
+    writeln!(stderr, "    ディレクトリにダウンロードします。")?;
+    writeln!(
+        stderr,
+        "─────────────────────────────────────────────────────────"
+    )?;
+    write!(stderr, "上記の規約に同意して setup を続行しますか? [y/N]: ")?;
+    stderr.flush()?;
+
+    let mut line = String::new();
+    std::io::stdin().lock().read_line(&mut line)?;
+    Ok(matches!(line.trim().to_lowercase().as_str(), "y" | "yes"))
 }
