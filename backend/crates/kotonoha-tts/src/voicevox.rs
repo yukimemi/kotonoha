@@ -249,6 +249,22 @@ pub struct Tts {
 }
 
 impl Tts {
+    /// Pre-download the ~700 MB of VOICEVOX assets to disk (no-op
+    /// if all four marker dirs are already present next to the
+    /// executable). Separated from [`Tts::load`] so callers can
+    /// run it before starting any progress UI of their own —
+    /// `voicevox_downloader` paints its own license pager + DL
+    /// progress bar, and an indicatif spinner painting on top of
+    /// that fight for the same terminal lines and corrupt each
+    /// other on scroll.
+    ///
+    /// `license_accepted` works the same as in [`TtsConfig`]: if
+    /// false and assets are missing, this errors out pointing at
+    /// `kotonoha setup-voicevox`.
+    pub async fn ensure_assets(license_accepted: bool) -> anyhow::Result<()> {
+        ensure_voicevox_assets(license_accepted).await
+    }
+
     /// Load the engine. Ensures the ~700 MB of assets are on disk
     /// (running the official downloader on first call), opens
     /// `c_api/lib/voicevox_core.dll`, walks `models/vvms/*.vvm` and

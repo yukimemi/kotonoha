@@ -66,14 +66,23 @@ pub async fn run(config: &Config, args: SetupVoicevoxArgs) -> anyhow::Result<()>
         anyhow::bail!("VOICEVOX 利用規約に同意されなかったため終了します。");
     }
 
-    // voicevox doesn't surface byte-level progress, so the download
-    // bar is a spinner — accurate completion signal, no percent. The
-    // per-speaker bar IS accurate (we count load_model calls
-    // ourselves below). --no-progress falls back to plain eprintln
-    // so log scrapers stay happy.
+    // Run the asset downloader FIRST, with no indicatif UI of our
+    // own running yet. `voicevox_downloader` paints its own license
+    // pager + DL progress bar, and an indicatif spinner painting on
+    // top of that fights for the same terminal lines and corrupts
+    // the pager on scroll — the user couldn't read the licenses.
+    //
+    // The `ensure_assets` call is a no-op if the four marker dirs
+    // are already present (= we agreed previously), so this just
+    // adds a clear first stage to the setup flow on first run.
+    VoicevoxTts::ensure_assets(license_accepted).await?;
+
+    // Now that the downloader's interactive UI is done, we own
+    // the terminal again and can spin up indicatif for the
+    // engine-init + speaker-preload steps. `--no-progress` falls
+    // back to plain eprintln so log scrapers stay happy.
     if args.no_progress {
-        eprintln!("downloading VOICEVOX core + ONNX runtime…");
-        eprintln!("preloading speaker models: {speakers:?}");
+        eprintln!("initializing VOICEVOX engine + preloading speakers {speakers:?}…");
         let tts_cfg = VoicevoxConfig {
             speaker_ids: speakers.clone(),
             on_event: None,
@@ -83,14 +92,14 @@ pub async fn run(config: &Config, args: SetupVoicevoxArgs) -> anyhow::Result<()>
     } else {
         let mp = MultiProgress::new();
 
-        let download = mp.add(ProgressBar::new_spinner());
-        download.set_style(
+        let init = mp.add(ProgressBar::new_spinner());
+        init.set_style(
             ProgressStyle::with_template("{spinner:.cyan} {msg}")
                 .unwrap()
                 .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
         );
-        download.set_message("downloading VOICEVOX core + ONNX runtime + initializing engine");
-        download.enable_steady_tick(Duration::from_millis(100));
+        init.set_message("initializing VOICEVOX engine");
+        init.enable_steady_tick(Duration::from_millis(100));
 
         let preload = mp.add(ProgressBar::new(speakers.len() as u64));
         preload.set_style(
@@ -99,11 +108,11 @@ pub async fn run(config: &Config, args: SetupVoicevoxArgs) -> anyhow::Result<()>
         preload.set_message("(waiting for engine init)");
 
         let preload_for_cb = preload.clone();
-        let download_for_cb = download.clone();
+        let init_for_cb = init.clone();
         let on_event =
             std::sync::Arc::new(move |evt: kotonoha_tts::voicevox::LoadEvent| match evt {
                 kotonoha_tts::voicevox::LoadEvent::EngineReady => {
-                    download_for_cb.finish_with_message("VOICEVOX engine ready");
+                    init_for_cb.finish_with_message("VOICEVOX engine ready");
                     preload_for_cb.set_message("loading speaker model…");
                 }
                 kotonoha_tts::voicevox::LoadEvent::SpeakerLoaded { id } => {

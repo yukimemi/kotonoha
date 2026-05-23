@@ -125,3 +125,10 @@ extends = "lessons/elementary-high.toml"
 
 [lesson.junior-high]
 extends = "lessons/junior-high.toml"
+
+# Shadowing — PROGRIT-style listen-and-repeat practice. Teacher
+# gives a short target sentence (rendered as a big 🎧 card),
+# student repeats it through the mic, teacher scores + diffs
+# what was actually heard.
+[lesson.shadowing]
+extends = "lessons/shadowing.toml"
