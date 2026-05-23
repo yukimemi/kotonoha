@@ -1240,7 +1240,7 @@ dependencies = [
 
 [[package]]
 name = "kotonoha-core"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1259,7 +1259,7 @@ dependencies = [
 
 [[package]]
 name = "kotonoha-llm"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1276,7 +1276,7 @@ dependencies = [
 
 [[package]]
 name = "kotonoha-server"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "anyhow",
  "axum",
@@ -1299,12 +1299,14 @@ dependencies = [
 
 [[package]]
 name = "kotonoha-tts"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "anyhow",
  "hound",
  "kokoro-en",
+ "reqwest",
  "serde",
+ "serde_json",
  "tokio",
  "tracing",
  "voicevox-dyn",
