@@ -199,19 +199,35 @@ async fn info(State(state): State<AppState>) -> axum::Json<serde_json::Value> {
 }
 
 /// Crude language detector used to route `/api/tts` between Kokoro
-/// (English) and VOICEVOX (Japanese). Any hiragana / katakana /
-/// CJK ideograph in the text → Japanese. Otherwise English. This
-/// is intentionally simple — the frontend can also pass an explicit
-/// `lang` on the request to override.
+/// (English) and VOICEVOX (Japanese). Threshold-based: an English
+/// sentence with a single Japanese parenthetical (e.g. "Are you
+/// `over the moon` (とても嬉しい) today?") used to flip to VOICEVOX
+/// and read the English part with a Japanese voice. Now we require
+/// the JP characters to be at least ~30 % of the letter-equivalent
+/// character count before routing to ja.
+///
+/// The frontend can still pass an explicit `lang` on the request to
+/// override.
 fn detect_lang(text: &str) -> &'static str {
-    let has_ja = text.chars().any(|c| {
+    fn is_ja(c: char) -> bool {
         matches!(c,
             '\u{3040}'..='\u{309f}'   // hiragana
             | '\u{30a0}'..='\u{30ff}'  // katakana
             | '\u{4e00}'..='\u{9fff}'  // CJK unified ideographs
         )
-    });
-    if has_ja { "ja" } else { "en" }
+    }
+    let jp = text.chars().filter(|&c| is_ja(c)).count();
+    if jp == 0 {
+        return "en";
+    }
+    // Letter-equivalent denominator: skip whitespace + punctuation
+    // so "(とても嬉しい)" doesn't dilute itself with its own brackets.
+    let letters = text
+        .chars()
+        .filter(|&c| c.is_ascii_alphabetic() || is_ja(c))
+        .count()
+        .max(jp);
+    if jp * 10 >= letters * 3 { "ja" } else { "en" }
 }
 
 #[derive(Debug, serde::Deserialize)]

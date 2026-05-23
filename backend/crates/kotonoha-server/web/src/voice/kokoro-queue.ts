@@ -22,10 +22,23 @@ type Opts = {
 };
 
 /** Detect if a sentence is "Japanese enough" to route to VOICEVOX.
- *  Any hiragana / katakana / CJK ideograph triggers ja; everything
- *  else stays en. Matches the backend's `detect_lang`. */
+ *  Threshold-based instead of any-match: an English sentence with a
+ *  single Japanese parenthetical (e.g. "Are you `over the moon`
+ *  (とても嬉しい) today?") used to flip the whole sentence to
+ *  VOICEVOX and read the English part with a Japanese voice. Now we
+ *  require the JP characters to be at least ~30% of the
+ *  letter-equivalent character count before routing to ja.
+ *
+ *  Matches the backend's `detect_lang`. */
 function detectLang(text: string): "ja" | "en" {
-  return /[぀-ゟ゠-ヿ一-鿿]/.test(text) ? "ja" : "en";
+  // Count CJK characters (hiragana / katakana / ideographs / fullwidth katakana).
+  const jp = text.match(/[぀-ゟ゠-ヿ一-鿿]/g)?.length ?? 0;
+  if (jp === 0) return "en";
+  // Letter-equivalent denominator: skip whitespace and ASCII
+  // punctuation so "(とても嬉しい)" doesn't dilute itself with
+  // its own brackets.
+  const letters = text.match(/[A-Za-z]|[぀-ゟ゠-ヿ一-鿿]/g)?.length ?? jp;
+  return jp / letters >= 0.3 ? "ja" : "en";
 }
 
 export class KokoroQueue {
