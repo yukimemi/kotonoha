@@ -3,8 +3,16 @@ import { ChatSocket } from "../api";
 import { createRecognizer, speak } from "../voice/speech";
 import { KokoroQueue, extractSentences } from "../voice/kokoro-queue";
 import { type Emotion, feedEmotionStream, extractEmotions } from "../voice/emotion";
+import { type ShadowingTags, computeDiff, extractShadowing } from "../voice/shadowing";
 
-type Turn = { role: "student" | "teacher"; text: string };
+type Turn = {
+  role: "student" | "teacher";
+  text: string;
+  /** Filled in on `onDone` for teacher turns in the shadowing
+   *  lesson. The tags arrive interleaved with the regular feedback
+   *  text and get pulled out for dedicated UI rendering. */
+  shadowing?: ShadowingTags;
+};
 
 function explainSpeechError(code: string): string {
   switch (code) {
@@ -106,11 +114,45 @@ export default function ChatPanel({ backend, lesson, ttsMode, kokoroVoice, voice
           }
           rawBufRef.current = "";
         }
-        const text = pendingRef.current;
+        let text = pendingRef.current;
         pendingRef.current = "";
         busyRef.current = false;
         setBusy(false);
         if (!text.trim()) return;
+
+        // Shadowing lesson: pull `[target]...`/`[score ...]`/`[diff ...]`
+        // out of the final text and attach to the last teacher
+        // turn. Strip them from the spoken + displayed text too —
+        // we don't want TTS reading raw tags out loud.
+        let shadowingTags: ShadowingTags | undefined;
+        if (lessonRef.current === "shadowing") {
+          const { stripped, tags } = extractShadowing(text);
+          if (tags.target || tags.score || tags.diff) {
+            shadowingTags = tags;
+          }
+          text = stripped;
+          // Rebuild the last teacher turn with the cleaned text +
+          // attach the shadowing tags so the bubble renders the
+          // target card / diff / score below it.
+          setTurns((prev) => {
+            const last = prev[prev.length - 1];
+            if (last?.role === "teacher") {
+              return [
+                ...prev.slice(0, -1),
+                { ...last, text, shadowing: shadowingTags },
+              ];
+            }
+            return prev;
+          });
+        }
+
+        // What we speak via TTS. For shadowing, prepend the target
+        // sentence so the student hears the model before the
+        // Japanese feedback — that's the whole point of the
+        // lesson. Falls through to plain text otherwise.
+        const ttsText = shadowingTags?.target
+          ? `${shadowingTags.target}. ${text}`
+          : text;
 
         if (ttsModeRef.current === "kokoro" && kokoroVoiceRef.current) {
           // Flush whatever's left in the sentence buffer (trailing text
@@ -122,15 +164,32 @@ export default function ChatPanel({ backend, lesson, ttsMode, kokoroVoice, voice
               onLevel: setMouth,
             });
           ttsQueueRef.current = q;
-          const { sentences } = extractSentences(ttsBufRef.current, true);
-          ttsBufRef.current = "";
-          for (const s of sentences) q.enqueue(s);
+          // For shadowing we throw away whatever sentence-stream
+          // chunks accumulated mid-stream (they include raw tags)
+          // and enqueue the freshly-stripped final text instead.
+          if (shadowingTags) {
+            ttsBufRef.current = "";
+            // Drop any in-flight TTS for the raw-tag stream and
+            // start a clean queue with the proper text.
+            q.cancel();
+            const cleanQ = new KokoroQueue({
+              voice: kokoroVoiceRef.current,
+              voicevoxSpeakerId: voicevoxSpeakerRef.current,
+              onLevel: setMouth,
+            });
+            const { sentences } = extractSentences(ttsText, true);
+            for (const s of sentences) cleanQ.enqueue(s);
+          } else {
+            const { sentences } = extractSentences(ttsBufRef.current, true);
+            ttsBufRef.current = "";
+            for (const s of sentences) q.enqueue(s);
+          }
           // Detach the queue ref — next turn gets a fresh one.
           ttsQueueRef.current = null;
         } else {
           // Browser TTS path: fire whole-text speak with sin-wave mouth.
           startMouthAnimation();
-          speak(text).done.then(() => stopMouthAnimation());
+          speak(ttsText).done.then(() => stopMouthAnimation());
         }
       },
       onError: (m) => {
@@ -156,9 +215,11 @@ export default function ChatPanel({ backend, lesson, ttsMode, kokoroVoice, voice
   const ttsModeRef = useRef(ttsMode);
   const kokoroVoiceRef = useRef(kokoroVoice);
   const voicevoxSpeakerRef = useRef(voicevoxSpeaker);
+  const lessonRef = useRef(lesson);
   useEffect(() => { ttsModeRef.current = ttsMode; }, [ttsMode]);
   useEffect(() => { kokoroVoiceRef.current = kokoroVoice; }, [kokoroVoice]);
   useEffect(() => { voicevoxSpeakerRef.current = voicevoxSpeaker; }, [voicevoxSpeaker]);
+  useEffect(() => { lessonRef.current = lesson; }, [lesson]);
 
   useEffect(() => {
     wsRef.current?.send({ type: "configure", backend, lesson });
@@ -254,16 +315,34 @@ export default function ChatPanel({ backend, lesson, ttsMode, kokoroVoice, voice
       <div className="px-4 py-2 text-xs text-kotonoha-ink/60">{status}</div>
       <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto px-4 pb-3 space-y-2">
         {turns.map((t, i) => (
-          <div
-            key={i}
-            className={
-              "max-w-[85%] rounded-2xl px-4 py-2 leading-relaxed " +
-              (t.role === "teacher"
-                ? "bg-white/80 text-kotonoha-ink font-en"
-                : "ml-auto bg-kotonoha-leaf/20 text-kotonoha-ink font-ja")
-            }
-          >
-            {t.text}
+          <div key={i} className="space-y-1">
+            {t.role === "teacher" && t.shadowing?.target && (
+              <ShadowingTargetCard target={t.shadowing.target} />
+            )}
+            {t.text && (
+              <div
+                className={
+                  "max-w-[85%] rounded-2xl px-4 py-2 leading-relaxed " +
+                  (t.role === "teacher"
+                    ? "bg-white/80 text-kotonoha-ink font-en"
+                    : "ml-auto bg-kotonoha-leaf/20 text-kotonoha-ink font-ja")
+                }
+              >
+                {t.text}
+              </div>
+            )}
+            {t.role === "teacher" && t.shadowing?.diff && (
+              <ShadowingDiff
+                target={t.shadowing.diff.target}
+                heard={t.shadowing.diff.heard}
+              />
+            )}
+            {t.role === "teacher" && t.shadowing?.score && (
+              <ShadowingScore
+                value={t.shadowing.score.value}
+                max={t.shadowing.score.max}
+              />
+            )}
           </div>
         ))}
         {busy && pendingRef.current === "" && (
@@ -304,6 +383,73 @@ export default function ChatPanel({ backend, lesson, ttsMode, kokoroVoice, voice
           送る
         </button>
       </form>
+    </div>
+  );
+}
+
+/** Big "listen and mimic" card for the shadowing lesson. The
+ *  English target sits front-and-center so the student can focus
+ *  on the sound without scanning past the surrounding feedback. */
+function ShadowingTargetCard({ target }: { target: string }) {
+  return (
+    <div className="my-2 rounded-2xl border-2 border-kotonoha-leaf bg-kotonoha-leaf/5 p-4 text-center">
+      <div className="mb-1 font-ja text-xs text-kotonoha-ink/60">🎧 これを真似してね</div>
+      <div className="font-en text-2xl text-kotonoha-ink">{target}</div>
+    </div>
+  );
+}
+
+/** Inline word-by-word diff of "what was supposed to be said"
+ *  vs "what speech recognition heard." Matched words turn green;
+ *  wrong words show the student's substitution in red strikethrough;
+ *  missed words go in dim red italic. */
+function ShadowingDiff({ target, heard }: { target: string; heard: string }) {
+  const words = computeDiff(target, heard);
+  return (
+    <div className="my-1 max-w-[85%] rounded-xl bg-kotonoha-paper/60 px-3 py-2 text-sm">
+      <span className="mr-2 font-ja text-xs text-kotonoha-ink/50">あなた:</span>
+      {words.map((w, i) => (
+        <span
+          key={i}
+          className={
+            "mr-1 font-en " +
+            (w.status === "ok"
+              ? "font-medium text-kotonoha-leaf"
+              : w.status === "wrong"
+                ? "text-kotonoha-accent line-through"
+                : "italic text-kotonoha-accent/60")
+          }
+          title={
+            w.status === "wrong"
+              ? `heard: ${w.heard ?? "?"}`
+              : w.status === "missed"
+                ? "聞き取れませんでした"
+                : undefined
+          }
+        >
+          {w.target}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/** 0-N score with a quick progress bar so the student can see
+ *  where they sit at a glance. */
+function ShadowingScore({ value, max }: { value: number; max: number }) {
+  const pct = Math.max(0, Math.min(100, Math.round((value / max) * 100)));
+  return (
+    <div className="my-1 flex max-w-[85%] items-center gap-2 px-3">
+      <span className="text-2xl" aria-hidden="true">⭐</span>
+      <span className="font-en text-xl font-bold text-kotonoha-ink">
+        {value}/{max}
+      </span>
+      <div className="h-2 flex-1 overflow-hidden rounded-full bg-kotonoha-ink/10">
+        <div
+          className="h-full rounded-full bg-kotonoha-leaf transition-[width] duration-500"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
     </div>
   );
 }
