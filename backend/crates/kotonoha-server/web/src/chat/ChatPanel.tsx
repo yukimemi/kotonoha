@@ -55,6 +55,11 @@ export default function ChatPanel({ backend, lesson, ttsMode, kokoroVoice, voice
   const recRef = useRef<ReturnType<typeof createRecognizer> | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const mouthTimer = useRef<number | null>(null);
+  // Drops the avatar's face back to neutral after the teacher
+  // finishes speaking — without this, a `[joy]` from the previous
+  // turn would stay locked on her face forever. Reset whenever a
+  // new turn starts so the upcoming [emotion] tag wins.
+  const emotionResetTimer = useRef<number | null>(null);
   // Kokoro sentence-streaming pipeline. Reset per turn.
   const ttsQueueRef = useRef<KokoroQueue | null>(null);
   const ttsBufRef = useRef<string>("");
@@ -164,6 +169,7 @@ export default function ChatPanel({ backend, lesson, ttsMode, kokoroVoice, voice
               onLevel: setMouth,
             });
           ttsQueueRef.current = q;
+          let activeQ = q;
           // For shadowing we throw away whatever sentence-stream
           // chunks accumulated mid-stream (they include raw tags)
           // and enqueue the freshly-stripped final text instead.
@@ -179,6 +185,7 @@ export default function ChatPanel({ backend, lesson, ttsMode, kokoroVoice, voice
             });
             const { sentences } = extractSentences(ttsText, true);
             for (const s of sentences) cleanQ.enqueue(s);
+            activeQ = cleanQ;
           } else {
             const { sentences } = extractSentences(ttsBufRef.current, true);
             ttsBufRef.current = "";
@@ -186,10 +193,17 @@ export default function ChatPanel({ backend, lesson, ttsMode, kokoroVoice, voice
           }
           // Detach the queue ref — next turn gets a fresh one.
           ttsQueueRef.current = null;
+          // After playback drains, drop the face back to neutral
+          // (with a short delay so the expression lingers a beat
+          // past the audio).
+          activeQ.done().then(scheduleEmotionReset);
         } else {
           // Browser TTS path: fire whole-text speak with sin-wave mouth.
           startMouthAnimation();
-          speak(ttsText).done.then(() => stopMouthAnimation());
+          speak(ttsText).done.then(() => {
+            stopMouthAnimation();
+            scheduleEmotionReset();
+          });
         }
       },
       onError: (m) => {
@@ -236,6 +250,28 @@ export default function ChatPanel({ backend, lesson, ttsMode, kokoroVoice, voice
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [turns]);
 
+  // Schedule the avatar's expression to drop back to "neutral"
+  // shortly after the teacher stops speaking. The delay lets the
+  // emotion linger for a beat (so a [joy] still feels like a real
+  // smile and not a single-frame flicker), and a fresh turn can
+  // cancel the pending reset so the next [emotion] tag wins.
+  const EMOTION_RESET_DELAY_MS = 2000;
+  const scheduleEmotionReset = () => {
+    if (emotionResetTimer.current != null) {
+      window.clearTimeout(emotionResetTimer.current);
+    }
+    emotionResetTimer.current = window.setTimeout(() => {
+      setEmotion("neutral");
+      emotionResetTimer.current = null;
+    }, EMOTION_RESET_DELAY_MS) as unknown as number;
+  };
+  const cancelEmotionReset = () => {
+    if (emotionResetTimer.current != null) {
+      window.clearTimeout(emotionResetTimer.current);
+      emotionResetTimer.current = null;
+    }
+  };
+
   const startMouthAnimation = () => {
     let t = 0;
     if (mouthTimer.current) window.clearInterval(mouthTimer.current);
@@ -253,11 +289,13 @@ export default function ChatPanel({ backend, lesson, ttsMode, kokoroVoice, voice
   const sendUser = (text: string) => {
     if (!text.trim() || busy) return;
     // Mid-reply interrupt: kill any pending TTS + emotion buffers
-    // from the previous turn.
+    // from the previous turn. Cancel a pending neutral-reset too
+    // so the upcoming [emotion] tag won't get clobbered halfway.
     ttsQueueRef.current?.cancel();
     ttsQueueRef.current = null;
     ttsBufRef.current = "";
     rawBufRef.current = "";
+    cancelEmotionReset();
     setTurns((prev) => [...prev, { role: "student", text }]);
     pendingRef.current = "";
     busyRef.current = true;
