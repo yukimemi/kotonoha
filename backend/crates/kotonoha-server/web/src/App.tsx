@@ -6,6 +6,7 @@ import ChatPanel from "./chat/ChatPanel";
 import { listVoices, setPreferredVoice, speak } from "./voice/speech";
 import { VOICEVOX_SPEAKERS, speakerCharacter, speakerIcon } from "./voice/voicevox-speakers";
 import { previewKokoroVoice, previewVoicevoxSpeaker } from "./voice/preview";
+import { type GestureName, GESTURES } from "./avatar/gesture";
 import { usePersistedState } from "./usePersistedState";
 
 export default function App() {
@@ -30,6 +31,10 @@ export default function App() {
   const [browserVoices, setBrowserVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [mouth, setMouth] = useState(0);
   const [emotion, setEmotion] = useState<import("./voice/emotion").Emotion>("neutral");
+  // Persisted: which talk gesture plays while she's speaking. "auto"
+  // follows the emotion tag; anything else pins to a specific Mixamo
+  // clip even when the emotion changes.
+  const [gesture, setGesture] = usePersistedState<GestureName>("kotonoha:gesture", "auto");
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
@@ -88,7 +93,7 @@ export default function App() {
   const selectorsProps = {
     info,
     backend, lesson, avatar, ttsMode, browserVoice, browserVoices, kokoroVoice,
-    voicevoxSpeaker, voicevoxAvailable,
+    voicevoxSpeaker, voicevoxAvailable, gesture,
     setMouth,
     onBackend: setBackend,
     onLesson: setLesson,
@@ -97,6 +102,7 @@ export default function App() {
     onBrowserVoice: setBrowserVoice,
     onKokoroVoice: setKokoroVoice,
     onVoicevoxSpeaker: setVoicevoxSpeaker,
+    onGesture: setGesture,
   };
 
   return (
@@ -125,7 +131,7 @@ export default function App() {
 
       <section className="relative shrink-0 overflow-hidden bg-gradient-to-b from-kotonoha-leaf/10 to-kotonoha-paper md:h-full md:w-1/2 md:shrink h-[38vh] min-h-[220px]">
         {avatar ? (
-          <VrmViewer src={`/avatars/${avatar}`} mouth={mouth} emotion={emotion} />
+          <VrmViewer src={`/avatars/${avatar}`} mouth={mouth} emotion={emotion} gesture={gesture} />
         ) : (
           <div className="flex h-full items-center justify-center p-6 text-center text-sm text-kotonoha-ink/60">
             avatars/ フォルダに *.vrm を置いてリロードしてね。<br />
@@ -167,6 +173,7 @@ type SelectorsProps = {
   kokoroVoice: string;
   voicevoxSpeaker: number;
   voicevoxAvailable: boolean;
+  gesture: GestureName;
   /** Lets the in-settings preview drive the avatar's mouth too. */
   setMouth: (v: number) => void;
   onBackend: (v: string) => void;
@@ -176,6 +183,7 @@ type SelectorsProps = {
   onBrowserVoice: (v: string) => void;
   onKokoroVoice: (v: string) => void;
   onVoicevoxSpeaker: (v: number) => void;
+  onGesture: (v: GestureName) => void;
   /** Stack rows full-width with labels (mobile settings panel). */
   stacked?: boolean;
 };
@@ -261,6 +269,13 @@ function Selectors(p: SelectorsProps) {
         {p.voicevoxAvailable && (
           <VoicevoxCredit speakerId={p.voicevoxSpeaker} stacked />
         )}
+        <Row label="ジェスチャー">
+          <SelectBare value={p.gesture} onChange={(v) => p.onGesture(v as GestureName)}>
+            {GESTURES.map((g) => (
+              <option key={g.name} value={g.name} title={g.hint}>{g.label}</option>
+            ))}
+          </SelectBare>
+        </Row>
       </div>
     );
   }
@@ -318,6 +333,16 @@ function Selectors(p: SelectorsProps) {
         </select>
       )}
       {p.voicevoxAvailable && <VoicevoxCredit speakerId={p.voicevoxSpeaker} />}
+      <select
+        className={cls + " truncate"}
+        title="先生がしゃべるときの身振り (auto = emotion 連動)"
+        value={p.gesture}
+        onChange={(e) => p.onGesture(e.target.value as GestureName)}
+      >
+        {GESTURES.map((g) => (
+          <option key={g.name} value={g.name} title={g.hint}>{g.label}</option>
+        ))}
+      </select>
     </div>
   );
 }

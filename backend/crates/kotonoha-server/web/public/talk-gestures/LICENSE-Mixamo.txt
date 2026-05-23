@@ -1,0 +1,21 @@
+Mixamo animation assets (.fbx) — Gestures Pack Basic
+Source: https://www.mixamo.com/ (Adobe Mixamo)
+
+The 15 .fbx files in this directory are royalty-free Mixamo
+animation data, sourced by the kotonoha maintainer with an Adobe
+ID and embedded into this interactive web application per Adobe's
+standard Mixamo license:
+
+  - Royalty-free for personal, commercial, and non-profit use
+    when incorporated into video games, films, and other
+    interactive / non-interactive works.
+  - May NOT be redistributed as a standalone animation library
+    outside an integrated derivative work.
+
+The bundle here qualifies as an integrated derivative work
+(kotonoha is a chat application that consumes the animations at
+runtime via three.js FBXLoader + retarget). Forks intending to
+redistribute the .fbx files in some other form should re-read the
+Mixamo license terms.
+
+Full license: https://www.mixamo.com/license
