@@ -8,7 +8,7 @@ members = [
 ]
 
 [workspace.package]
-version      = "0.1.12"
+version      = "0.1.13"
 edition      = "2024"
 rust-version = "1.85"
 license      = "MIT"
@@ -40,7 +40,6 @@ reqwest            = { version = "0.12", features = ["json", "stream", "rustls-t
 bytes              = "1.11.1"
 rust-embed         = "8.11.0"
 mime_guess         = "2.0.5"
-voicevox-dyn       = "0.3"
 indicatif          = "0.18.4"
 
 [profile.dev]
