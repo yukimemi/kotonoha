@@ -1166,7 +1166,7 @@ dependencies = [
 
 [[package]]
 name = "kotonoha-core"
-version = "0.1.18"
+version = "0.1.19"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1185,7 +1185,7 @@ dependencies = [
 
 [[package]]
 name = "kotonoha-llm"
-version = "0.1.18"
+version = "0.1.19"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -1202,7 +1202,7 @@ dependencies = [
 
 [[package]]
 name = "kotonoha-server"
-version = "0.1.18"
+version = "0.1.19"
 dependencies = [
  "anyhow",
  "axum",
@@ -1225,7 +1225,7 @@ dependencies = [
 
 [[package]]
 name = "kotonoha-tts"
-version = "0.1.18"
+version = "0.1.19"
 dependencies = [
  "anyhow",
  "hound",
