@@ -216,17 +216,22 @@ fn detect_lang(text: &str) -> &'static str {
             | '\u{4e00}'..='\u{9fff}'  // CJK unified ideographs
         )
     }
-    let jp = text.chars().filter(|&c| is_ja(c)).count();
+    // Single-pass: count Japanese chars + letter-equivalent denominator
+    // in one walk. Skips whitespace + punctuation so "(とても嬉しい)"
+    // doesn't dilute itself with its own brackets.
+    let mut jp = 0usize;
+    let mut letters = 0usize;
+    for c in text.chars() {
+        if is_ja(c) {
+            jp += 1;
+            letters += 1;
+        } else if c.is_ascii_alphabetic() {
+            letters += 1;
+        }
+    }
     if jp == 0 {
         return "en";
     }
-    // Letter-equivalent denominator: skip whitespace + punctuation
-    // so "(とても嬉しい)" doesn't dilute itself with its own brackets.
-    let letters = text
-        .chars()
-        .filter(|&c| c.is_ascii_alphabetic() || is_ja(c))
-        .count()
-        .max(jp);
     if jp * 10 >= letters * 3 { "ja" } else { "en" }
 }
 

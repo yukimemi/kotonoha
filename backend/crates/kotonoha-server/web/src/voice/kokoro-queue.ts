@@ -31,14 +31,24 @@ type Opts = {
  *
  *  Matches the backend's `detect_lang`. */
 function detectLang(text: string): "ja" | "en" {
-  // Count CJK characters (hiragana / katakana / ideographs / fullwidth katakana).
-  const jp = text.match(/[぀-ゟ゠-ヿ一-鿿]/g)?.length ?? 0;
+  // Single-pass: count Japanese chars + letter-equivalent denominator
+  // in one walk. Skips whitespace and ASCII punctuation so the
+  // brackets around "(とても嬉しい)" don't dilute their own contents.
+  let jp = 0;
+  let letters = 0;
+  for (const char of text) {
+    if (/[぀-ゟ゠-ヿ一-鿿]/.test(char)) {
+      jp++;
+      letters++;
+    } else if (/[A-Za-z]/.test(char)) {
+      letters++;
+    }
+  }
   if (jp === 0) return "en";
-  // Letter-equivalent denominator: skip whitespace and ASCII
-  // punctuation so "(とても嬉しい)" doesn't dilute itself with
-  // its own brackets.
-  const letters = text.match(/[A-Za-z]|[぀-ゟ゠-ヿ一-鿿]/g)?.length ?? jp;
-  return jp / letters >= 0.3 ? "ja" : "en";
+  // Integer arithmetic mirrors the backend's `detect_lang` so both
+  // ends round the 30% threshold identically — no floating-point
+  // edge cases between client + server.
+  return jp * 10 >= letters * 3 ? "ja" : "en";
 }
 
 export class KokoroQueue {

@@ -185,18 +185,29 @@ export default function ChatPanel({ backend, lesson, ttsMode, kokoroVoice, voice
             });
             const { sentences } = extractSentences(ttsText, true);
             for (const s of sentences) cleanQ.enqueue(s);
+            // Hand the live queue back to the ref so `sendUser` /
+            // the component cleanup path can still cancel it
+            // mid-playback. Without this assignment a fresh user
+            // message would leave the stale-shadowing audio
+            // running and overlap with the next turn's TTS.
+            ttsQueueRef.current = cleanQ;
             activeQ = cleanQ;
           } else {
             const { sentences } = extractSentences(ttsBufRef.current, true);
             ttsBufRef.current = "";
             for (const s of sentences) q.enqueue(s);
           }
-          // Detach the queue ref — next turn gets a fresh one.
-          ttsQueueRef.current = null;
           // After playback drains, drop the face back to neutral
           // (with a short delay so the expression lingers a beat
-          // past the audio).
-          activeQ.done().then(scheduleEmotionReset);
+          // past the audio) and detach the queue ref so the next
+          // turn gets a fresh queue. Guard against detaching a
+          // newer queue that a fresh sendUser already swapped in.
+          activeQ.done().then(() => {
+            if (ttsQueueRef.current === activeQ) {
+              ttsQueueRef.current = null;
+            }
+            scheduleEmotionReset();
+          });
         } else {
           // Browser TTS path: fire whole-text speak with sin-wave mouth.
           startMouthAnimation();
