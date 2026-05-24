@@ -19,7 +19,28 @@ type Opts = {
   speed?: number;
   /** 0-1 mouth-open level, driven by the currently-playing audio. */
   onLevel: (v: number) => void;
+  /** Fired when a sentence fetch fails. Without this the only
+   *  signal was a console.warn — easy to miss when VOICEVOX isn't
+   *  set up and every JP sentence silently 5xx's. `lang` lets the
+   *  UI tailor the message ("run setup-voicevox" vs "run setup-tts"). */
+  onError?: (err: { message: string; lang: "en" | "ja" }) => void;
 };
+
+/** Trim + strip leading non-language chars (emoji, decorative
+ *  symbols, leading punctuation) so Open JTalk inside VOICEVOX
+ *  doesn't emit
+ *      WARNING: JPCommonLabel_insert_pause(): First mora should
+ *      not be short pause.
+ *  for every "🎧 これを真似してね" sentence. The synth still
+ *  worked through the warning, but it floods server logs and
+ *  obscures real diagnostics. Letters/digits (any script,
+ *  including JP) and the ASCII apostrophe (so "I'll" stays
+ *  intact) survive; the rest of the leading run is shaved off.
+ *  Returns "" when the sentence is purely decorative — the
+ *  caller skips empty enqueues. */
+export function sanitizeForSynth(text: string): string {
+  return text.trim().replace(/^[^\p{L}\p{N}']+/u, "");
+}
 
 /** Detect if a sentence is "Japanese enough" to route to VOICEVOX.
  *  Threshold-based instead of any-match: an English sentence with a
@@ -51,6 +72,40 @@ function detectLang(text: string): "ja" | "en" {
   return jp * 10 >= letters * 3 ? "ja" : "en";
 }
 
+/** Carve a mixed-script sentence into same-language runs so each
+ *  goes to the engine that pronounces it natively. Used when a
+ *  shadowing feedback line is mostly Japanese but quotes English
+ *  phrases the student should mimic:
+ *
+ *      "cheese sandwich" はバッチリでした！
+ *
+ *  Without this split the whole sentence routes to VOICEVOX
+ *  (detectLang=ja) and `"cheese sandwich"` comes out in katakana —
+ *  the very pronunciation the lesson is trying to teach away from.
+ *  An EN run is one-or-more ASCII letters/digits with internal
+ *  apostrophes, hyphens, or spaces (so `Let's try`, `ham and`,
+ *  `I'll` stay together as one Kokoro clip). Single-letter runs
+ *  (`a`, `d`) match too — they're rare outside intentional
+ *  pronunciation callouts in feedback. */
+export function splitByScript(sentence: string): Array<{ text: string; lang: "en" | "ja" }> {
+  const out: Array<{ text: string; lang: "en" | "ja" }> = [];
+  // Greedy multi-word run, with a fallback for the single-letter case.
+  const enRe = /[A-Za-z][A-Za-z0-9'\- ]*[A-Za-z0-9]|[A-Za-z]/g;
+  let lastEnd = 0;
+  let m: RegExpExecArray | null;
+  while ((m = enRe.exec(sentence)) !== null) {
+    if (m.index > lastEnd) {
+      out.push({ text: sentence.slice(lastEnd, m.index), lang: "ja" });
+    }
+    out.push({ text: m[0], lang: "en" });
+    lastEnd = enRe.lastIndex;
+  }
+  if (lastEnd < sentence.length) {
+    out.push({ text: sentence.slice(lastEnd), lang: "ja" });
+  }
+  return out;
+}
+
 export class KokoroQueue {
   private chain: Promise<void> = Promise.resolve();
   private cancelled = false;
@@ -60,18 +115,34 @@ export class KokoroQueue {
 
   constructor(private opts: Opts) {}
 
-  /** Enqueue a sentence — fetch starts now, playback after prior clips. */
+  /** Enqueue a sentence — fetch starts now, playback after prior clips.
+   *  Mixed-script sentences (JP + EN) are split into runs so each
+   *  language is read by its native engine; pure JP / pure EN
+   *  sentences stay whole so neither engine loses prosody on text
+   *  it fully owns. */
   enqueue(text: string) {
-    const sentence = text.trim();
+    const sentence = sanitizeForSynth(text);
     if (!sentence || this.cancelled) return;
+    const hasEn = /[A-Za-z]/.test(sentence);
+    const hasJa = /[぀-ヿ一-鿿]/.test(sentence);
+    if (!(hasEn && hasJa)) {
+      this.enqueueChunk(sentence, detectLang(sentence));
+      return;
+    }
+    for (const seg of splitByScript(sentence)) {
+      const piece = sanitizeForSynth(seg.text);
+      if (piece) this.enqueueChunk(piece, seg.lang);
+    }
+  }
 
+  /** Fire the `/api/tts` fetch + chain the playback. The server
+   *  picks the engine off `lang`: VOICEVOX for "ja", Kokoro for
+   *  "en". Both engine-specific fields (`voice`, `speaker_id`) are
+   *  always sent — server keeps whichever matches the resolved
+   *  lang and ignores the other. */
+  private enqueueChunk(sentence: string, lang: "en" | "ja") {
     const abort = new AbortController();
     this.aborts.add(abort);
-    // Tag each sentence with its language so the backend routes to
-    // VOICEVOX for Japanese and Kokoro for English. Both engines
-    // expect different speaker identifiers, so we send both fields —
-    // the server picks the one that matches the resolved lang.
-    const lang = detectLang(sentence);
     const blobP = fetch("/api/tts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -99,7 +170,9 @@ export class KokoroQueue {
         await this.play(blob);
       })
       .catch((e) => {
-        if (!this.cancelled) console.warn("kokoro queue clip failed:", e);
+        if (this.cancelled) return;
+        console.warn("kokoro queue clip failed:", e);
+        this.opts.onError?.({ message: String(e?.message ?? e), lang });
       });
   }
 

@@ -31,6 +31,10 @@ function getCtx(): AudioContext {
 type Opts = {
   /** Optional 0-1 mouth level callback while the sample plays. */
   onLevel?: (v: number) => void;
+  /** Surface fetch / synthesis failures to the caller. Without this
+   *  a VOICEVOX-not-set-up preview just console.warns and the user
+   *  is left wondering why the dropdown doesn't say anything. */
+  onError?: (err: { message: string; lang: "en" | "ja" }) => void;
 };
 
 export function previewKokoroVoice(voice: string, opts: Opts = {}): Promise<void> {
@@ -78,6 +82,7 @@ async function play(body: TtsBody, opts: Opts): Promise<void> {
     if (current === handle) current = null;
     if ((e as Error).name === "AbortError") return; // cancelled
     console.warn("voice preview failed:", e);
+    opts.onError?.({ message: String((e as Error).message ?? e), lang: body.lang });
   }
 }
 
