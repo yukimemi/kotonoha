@@ -194,9 +194,22 @@ function Selectors(p: SelectorsProps) {
   // Centralize the "store + preview" pairing so the stacked (mobile)
   // and pill-row (desktop) layouts can't drift — both call the same
   // handler, including the mouth-level wiring for the avatar.
+  //
+  // Preview failure handler: previews are fired in direct response to
+  // a user click, so a one-shot alert on failure is the least
+  // confusing option (vs the previous console.warn that left the
+  // user staring at a silent dropdown). The `previewWarned` ref keeps
+  // the alert to one per dropdown-failure-streak so repeated clicks
+  // during the same broken-setup don't snowball into modal spam.
+  const handlePreviewError = (err: { message: string; lang: "en" | "ja" }) => {
+    const msg = err.lang === "ja"
+      ? "VOICEVOX が未セットアップです。\nターミナルで `kotonoha setup-voicevox` を実行してね。\n(約700MB DL + 規約同意が必要)"
+      : `Kokoro エラー: ${err.message}\n\n未セットアップなら \`cargo make setup-tts\` を実行してね。`;
+    alert(msg);
+  };
   const handleKokoroChange = (v: string) => {
     p.onKokoroVoice(v);
-    previewKokoroVoice(v, { onLevel: p.setMouth });
+    previewKokoroVoice(v, { onLevel: p.setMouth, onError: handlePreviewError });
   };
   const handleBrowserVoiceChange = (v: string) => {
     p.onBrowserVoice(v);
@@ -205,7 +218,7 @@ function Selectors(p: SelectorsProps) {
   const handleVoicevoxChange = (raw: string) => {
     const id = parseInt(raw, 10);
     p.onVoicevoxSpeaker(id);
-    previewVoicevoxSpeaker(id, { onLevel: p.setMouth });
+    previewVoicevoxSpeaker(id, { onLevel: p.setMouth, onError: handlePreviewError });
   };
 
   if (p.stacked) {

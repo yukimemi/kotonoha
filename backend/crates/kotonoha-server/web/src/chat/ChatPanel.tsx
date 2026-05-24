@@ -18,12 +18,47 @@ function explainSpeechError(code: string): string {
   switch (code) {
     case "not-allowed":         return "マイクへのアクセスが拒否されました。ブラウザの設定を確認してください。";
     case "service-not-allowed": return "音声認識サービスが利用できません (HTTPS 必須かも)。";
-    case "network":             return "ネットワークエラー。HTTPS 接続か、回線状況を確認してください。";
+    case "network":
+      // On a secure origin (localhost / HTTPS) `network` is almost always
+      // a transient hiccup in Chrome's cloud speech service, not an HTTPS
+      // setup problem. Skip the misleading HTTPS hint in that case.
+      return window.isSecureContext
+        ? "音声認識サーバに一時的に届きませんでした。もう一度試してみてください。"
+        : "ネットワークエラー。HTTPS 接続か、回線状況を確認してください。";
     case "no-speech":           return "声が検出できませんでした。";
     case "audio-capture":       return "マイクが見つかりません。";
     case "aborted":             return "音声入力が中断されました。";
     default:                    return code;
   }
+}
+
+/** Turn a `/api/tts` failure into a user-readable status line. JA
+ *  failures always trace back to VOICEVOX (it's the only engine the
+ *  server uses for `lang=ja`); EN failures to Kokoro. Either way we
+ *  point the user straight at the matching setup command so the
+ *  shadowing lesson stops being silently broken when the 700 MB
+ *  VOICEVOX assets aren't downloaded yet. */
+function explainTtsError(err: { message: string; lang: "en" | "ja" }): string {
+  return err.lang === "ja"
+    ? "VOICEVOX が未セットアップです — ターミナルで `kotonoha setup-voicevox` を実行してね (約700MB DL + 規約同意)。"
+    : `Kokoro エラー: ${err.message}\n未セットアップなら \`cargo make setup-tts\` を実行してね。`;
+}
+
+/** Hand-pick which speech-recognition errors deserve a modal alert
+ *  (vs the unobtrusive status-bar line). Mobile users genuinely need
+ *  the modal for "give me mic permission" — they won't read the
+ *  16-pixel status text. But transient `network` blips during normal
+ *  use shouldn't slam a modal in the user's face every time. */
+function shouldAlertSpeechError(code: string): boolean {
+  if (code === "not-allowed") return true;
+  // service-not-allowed on insecure origins → user needs to know
+  // their setup is broken, not just dismiss it.
+  if (code === "service-not-allowed" && !window.isSecureContext) return true;
+  // network is only a "setup" problem on insecure origins; on
+  // localhost/HTTPS it's almost always Chrome's cloud speech being
+  // flaky. Status-bar only there.
+  if (code === "network" && !window.isSecureContext) return true;
+  return false;
 }
 
 type Props = {
@@ -64,6 +99,20 @@ export default function ChatPanel({ backend, lesson, ttsMode, kokoroVoice, voice
   const ttsQueueRef = useRef<KokoroQueue | null>(null);
   const ttsBufRef = useRef<string>("");
 
+  // Single construction point for KokoroQueue so the three call sites
+  // below (streaming, post-stream flush, shadowing clean queue) can't
+  // drift on which Opts they wire. In particular, `onError` was added
+  // late — keeping the construction here ensures every queue surfaces
+  // failures to the status bar rather than dying silently in
+  // console.warn (the previous behavior, which hid VOICEVOX-not-setup
+  // for shadowing-lesson users completely).
+  const newTtsQueue = () => new KokoroQueue({
+    voice: kokoroVoiceRef.current,
+    voicevoxSpeakerId: voicevoxSpeakerRef.current,
+    onLevel: setMouth,
+    onError: (err) => setStatus(explainTtsError(err)),
+  });
+
   useEffect(() => {
     const ws = new ChatSocket({
       onReady: ({ backend, lesson }) => setStatus(`${backend} / ${lesson}`),
@@ -93,11 +142,7 @@ export default function ChatPanel({ backend, lesson, ttsMode, kokoroVoice, voice
         // parallel, audio playback stays serialized inside KokoroQueue.
         if (ttsModeRef.current === "kokoro" && kokoroVoiceRef.current) {
           if (!ttsQueueRef.current) {
-            ttsQueueRef.current = new KokoroQueue({
-              voice: kokoroVoiceRef.current,
-              voicevoxSpeakerId: voicevoxSpeakerRef.current,
-              onLevel: setMouth,
-            });
+            ttsQueueRef.current = newTtsQueue();
           }
           ttsBufRef.current += safeStripped;
           const { sentences, remainder } = extractSentences(ttsBufRef.current, false);
@@ -151,23 +196,22 @@ export default function ChatPanel({ backend, lesson, ttsMode, kokoroVoice, voice
           });
         }
 
-        // What we speak via TTS. For shadowing, prepend the target
-        // sentence so the student hears the model before the
-        // Japanese feedback — that's the whole point of the
-        // lesson. Falls through to plain text otherwise.
+        // What we speak via TTS. For shadowing, APPEND the target so
+        // playback runs feedback → "these are the words to mimic"
+        // narration → target. Previously we prepended the target,
+        // which meant a successful attempt that moved on to a new
+        // target had the new English sentence read out before the
+        // praise / advice on the just-finished attempt — losing the
+        // close on what the student actually did. Falls through to
+        // plain text on non-shadowing lessons.
         const ttsText = shadowingTags?.target
-          ? `${shadowingTags.target}. ${text}`
+          ? [text.trim(), shadowingTags.target].filter(Boolean).join("\n")
           : text;
 
         if (ttsModeRef.current === "kokoro" && kokoroVoiceRef.current) {
           // Flush whatever's left in the sentence buffer (trailing text
           // with no terminator, e.g. "Sure"). Then let the queue drain.
-          const q = ttsQueueRef.current
-            ?? new KokoroQueue({
-              voice: kokoroVoiceRef.current,
-              voicevoxSpeakerId: voicevoxSpeakerRef.current,
-              onLevel: setMouth,
-            });
+          const q = ttsQueueRef.current ?? newTtsQueue();
           ttsQueueRef.current = q;
           let activeQ = q;
           // For shadowing we throw away whatever sentence-stream
@@ -178,11 +222,7 @@ export default function ChatPanel({ backend, lesson, ttsMode, kokoroVoice, voice
             // Drop any in-flight TTS for the raw-tag stream and
             // start a clean queue with the proper text.
             q.cancel();
-            const cleanQ = new KokoroQueue({
-              voice: kokoroVoiceRef.current,
-              voicevoxSpeakerId: voicevoxSpeakerRef.current,
-              onLevel: setMouth,
-            });
+            const cleanQ = newTtsQueue();
             const { sentences } = extractSentences(ttsText, true);
             for (const s of sentences) cleanQ.enqueue(s);
             // Hand the live queue back to the ref so `sendUser` /
@@ -346,9 +386,11 @@ export default function ChatPanel({ backend, lesson, ttsMode, kokoroVoice, voice
         const msg = explainSpeechError(e);
         setStatus(`音声認識: ${msg}`);
         setListening(false);
-        // For the most actionable errors, also pop an alert so the user
-        // on mobile (where the status bar is tiny) actually sees it.
-        if (e === "not-allowed" || e === "service-not-allowed" || e === "network") {
+        // Modal only for errors the user has to act on (mic permission
+        // denied, or speech service unavailable on a setup that can't
+        // recover by itself). Transient `network` hiccups on a secure
+        // origin stay in the status bar — see shouldAlertSpeechError.
+        if (shouldAlertSpeechError(e)) {
           alert(`音声認識エラー: ${msg}`);
         }
       },
