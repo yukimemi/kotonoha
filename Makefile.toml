@@ -1,6 +1,6 @@
 [config]
 # cargo-make's default is to enter every workspace member and run the
-# requested task once per member. The yukimemi/* convention runs cargo
+# requested task once per member. The convention here runs cargo
 # directly at the workspace root with --workspace / --all-targets
 # (see pj-rust's Makefile.toml), so per-member recursion just
 # duplicates work and slows `cargo make check` noticeably.
@@ -72,69 +72,6 @@ bun install
 bun run dev
 '''
 
-[tasks.web-build]
-description = "Build the SPA bundle (web/dist/) — required before `cargo build` since rust-embed reads it at compile time"
-script_runner = "@shell"
-script = '''
-cd backend/crates/kotonoha-server/web
-bun install --frozen-lockfile
-bun run build
-'''
-
-[tasks.publish-dry]
-description = "Dry-run crates.io publish"
-command = "cargo"
-args = ["publish", "--dry-run", "--allow-dirty"]
-
-[tasks.kill]
-description = "Force-kill any lingering kotonoha-server / vite processes (Windows Ctrl+C escape hatch)"
-script_runner = "@shell"
-script = '''
-taskkill /F /IM kotonoha-server.exe 2>nul
-taskkill /F /IM bun.exe 2>nul
-exit 0
-'''
-
-[tasks.hook-install]
-description = "Install git pre-push hook that runs 'cargo make check'"
-script_runner = "@duckscript"
-script = '''
-hook_dir = set ".git/hooks"
-hook_file = set "${hook_dir}/pre-push"
-mkdir ${hook_dir}
-hook_content = set "#!/bin/sh\n# Installed by: cargo make hook-install\ncargo make check"
-writefile ${hook_file} ${hook_content}
-# chmod +x is needed on Unix; on Windows the exec bit is a no-op
-# AND `chmod` may not be on PATH (it's only present when Git for
-# Windows / busybox is wired into the shell). Skip silently if
-# `chmod` isn't reachable so plain Windows shells don't fail this
-# task with `program not found`.
-chmod_path = which chmod
-if not is_empty ${chmod_path}
-    exec chmod +x ${hook_file}
-else
-    echo "chmod not on PATH; skipping exec-bit (no-op on Windows; on Unix this means the hook may not be executable)"
-end
-echo "Installed pre-push hook -> ${hook_file}"
-'''
-
-[tasks.apm-install]
-description = "Install agent skills declared in apm.yml (Copilot / Claude / Gemini targets). Skipped silently when apm.yml or the apm CLI is absent."
-script_runner = "@duckscript"
-script = '''
-exists = is_path_exists "apm.yml"
-if not ${exists}
-    echo "no apm.yml; skipping apm-install"
-    exit 0
-end
-apm_path = which apm
-if is_empty ${apm_path}
-    echo "apm CLI not on PATH; skipping apm-install (install via aka.ms/apm-unix or your platform's package manager)"
-    exit 0
-end
-exec apm install -t copilot,claude,gemini
-'''
-
 [tasks.apm-install-update]
 description = "Refresh APM dependencies to upstream latest. Skipped when apm.yml/apm absent, or when apm.lock.yaml already records the current upstream renri HEAD (kicks in on every cargo make on-add after the first to keep worktree creation fast)."
 script_runner = "@duckscript"
@@ -152,7 +89,7 @@ end
 
 # Fast-path: if apm.lock.yaml already records the current
 # upstream HEAD of yukimemi/renri (the only APM dependency for
-# yukimemi/* projects), don't re-run `apm install --update` —
+# projects using these templates), don't re-run `apm install --update` —
 # git ls-remote is ~100ms, an actual reinstall is several
 # seconds. This makes `cargo make on-add` cheap on every
 # `renri add` after the first.
@@ -196,6 +133,82 @@ end
 exec apm install --update -t copilot,claude,gemini
 '''
 
+[tasks.web-build]
+description = "Build the SPA bundle (web/dist/) — required before `cargo build` since rust-embed reads it at compile time"
+script_runner = "@shell"
+script = '''
+cd backend/crates/kotonoha-server/web
+bun install --frozen-lockfile
+bun run build
+'''
+
+[tasks.publish-dry]
+description = "Dry-run crates.io publish"
+command = "cargo"
+args = ["publish", "--dry-run", "--allow-dirty"]
+
+[tasks.kill]
+description = "Force-kill any lingering kotonoha-server / vite processes (Windows Ctrl+C escape hatch)"
+script_runner = "@shell"
+script = '''
+taskkill /F /IM kotonoha-server.exe 2>nul
+taskkill /F /IM bun.exe 2>nul
+exit 0
+'''
+
+[tasks.on-add]
+description = "Wired to renri's [[hooks.post_create]] — runs in a freshly created worktree"
+# `apm-install` (no `--update`) is idempotent against the existing
+# `apm.lock.yaml` — fresh worktrees install the recorded skills
+# without rewriting the lock. Upstream-refresh is delegated to
+# pj-base's `.github/workflows/apm-bump.yml` (weekly cron + manual
+# dispatch); same Renovate-equivalent pattern as `kata-apply.yml`.
+# Avoids the per-`renri add` lock churn that `apm install --update`
+# produced whenever upstream renri (or any other apm dep) had
+# moved — see yukimemi/pj-base#8 for the companion change in
+# `renri.toml.base`.
+dependencies = ["apm-install", "vcs-fetch"]
+
+[tasks.hook-install]
+description = "Install git pre-push hook that runs 'cargo make check'"
+script_runner = "@duckscript"
+script = '''
+hook_dir = set ".git/hooks"
+hook_file = set "${hook_dir}/pre-push"
+mkdir ${hook_dir}
+hook_content = set "#!/bin/sh\n# Installed by: cargo make hook-install\ncargo make check"
+writefile ${hook_file} ${hook_content}
+# chmod +x is needed on Unix; on Windows the exec bit is a no-op
+# AND `chmod` may not be on PATH (it's only present when Git for
+# Windows / busybox is wired into the shell). Skip silently if
+# `chmod` isn't reachable so plain Windows shells don't fail this
+# task with `program not found`.
+chmod_path = which chmod
+if not is_empty ${chmod_path}
+    exec chmod +x ${hook_file}
+else
+    echo "chmod not on PATH; skipping exec-bit (no-op on Windows; on Unix this means the hook may not be executable)"
+end
+echo "Installed pre-push hook -> ${hook_file}"
+'''
+
+[tasks.apm-install]
+description = "Install agent skills declared in apm.yml (Copilot / Claude / Gemini targets). Skipped silently when apm.yml or the apm CLI is absent."
+script_runner = "@duckscript"
+script = '''
+exists = is_path_exists "apm.yml"
+if not ${exists}
+    echo "no apm.yml; skipping apm-install"
+    exit 0
+end
+apm_path = which apm
+if is_empty ${apm_path}
+    echo "apm CLI not on PATH; skipping apm-install (install via aka.ms/apm-unix or your platform's package manager)"
+    exit 0
+end
+exec apm install -t copilot,claude,gemini
+'''
+
 [tasks.setup]
 description = "One-time setup for new contributors: pre-push hook + APM install"
 dependencies = ["hook-install", "apm-install"]
@@ -223,7 +236,3 @@ else
     exec git fetch
 end
 '''
-
-[tasks.on-add]
-description = "Wired to renri's [[hooks.post_create]] — runs in a freshly created worktree"
-dependencies = ["apm-install-update", "vcs-fetch"]
