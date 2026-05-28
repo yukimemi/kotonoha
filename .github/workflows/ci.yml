@@ -23,7 +23,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6.0.2
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -33,6 +33,14 @@ jobs:
           # blocking renovate auto-merge for downstream consumers).
           # Main keeps saving so every PR rebuild gets a warm cache.
           save-if: ${{ github.ref == 'refs/heads/main' }}
+        # The GH Actions cache backend transient-flakes the restore
+        # step on windows-latest just often enough to gate release
+        # pipelines (verified on yukimemi/kanade@v0.6.2 — the cache
+        # restore died mid-tar, killed the Windows build matrix, and
+        # blocked the publish). Fall through to a cold cargo build
+        # when the restore errors out: ~3–5 min slower on a single
+        # job, but self-healing instead of release-blocking.
+        continue-on-error: true
       - run: cargo check --all-targets
 
   test:
@@ -43,11 +51,15 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6.0.2
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+        # See the check job above for why continue-on-error is set
+        # on every rust-cache restore (transient GH Actions cache
+        # backend flake on windows-latest).
+        continue-on-error: true
       # `cargo test --all-targets` covers lib / bins / tests / benches
       # / examples but EXCLUDES doc tests, so run --doc separately.
       # Doc-test step is gated on `src/lib.rs` presence: `cargo test
@@ -62,7 +74,7 @@ jobs:
     name: rustfmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6.0.2
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
@@ -81,13 +93,17 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6.0.2
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+        # See the check job above for why continue-on-error is set
+        # on every rust-cache restore (transient GH Actions cache
+        # backend flake on windows-latest).
+        continue-on-error: true
       - run: cargo clippy --all-targets -- -D warnings
 
   lockfile:
@@ -97,11 +113,15 @@ jobs:
     name: cargo lockfile in sync
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6.0.2
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+        # See the check job above for why continue-on-error is set
+        # on every rust-cache restore (transient GH Actions cache
+        # backend flake on windows-latest).
+        continue-on-error: true
       - run: cargo check --locked --all-targets
 
   coverage:
@@ -114,13 +134,17 @@ jobs:
     name: coverage
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6.0.2
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: llvm-tools-preview
       - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+        # See the check job above for why continue-on-error is set
+        # on every rust-cache restore (transient GH Actions cache
+        # backend flake on windows-latest).
+        continue-on-error: true
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-llvm-cov
