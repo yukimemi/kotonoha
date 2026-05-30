@@ -19,7 +19,14 @@
 # inter-crate dep order) is discovered from `cargo metadata` at run
 # time:
 #   * `cargo build --release --workspace --bins` builds every
-#     `[[bin]]` target in the workspace.
+#     `[[bin]]` target in the workspace, then a verify-and-rebuild
+#     loop catches the windows-msvc edge case where some bins are
+#     silently absent from `target/<target>/release/` despite
+#     cargo reporting success (a stochastic hardlink race under
+#     parallel link.exe; symptom: each tag release of a multi-bin
+#     workspace ships a different ONE of the N bins). The loop
+#     only fires when something IS missing, so the fast path
+#     stays the common path.
 #   * `jq` filters `cargo metadata`'s package list down to those
 #     with `kind: ["bin"]` and stages them under `dist/` with a
 #     per-target filename suffix (`<bin>-<target>` on Unix,
@@ -76,7 +83,76 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Build workspace binaries
-        run: cargo build --release --workspace --bins --target ${{ matrix.target }}
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          cargo build --release --workspace --bins --target "$TARGET"
+
+          # windows-msvc + multi-bin workspaces hit a stochastic
+          # hardlink race under parallel link.exe where cargo
+          # reports "Finished" but some `[[bin]]` targets are
+          # absent from `target/<target>/release/`. Reproduces
+          # in production tag releases (yukimemi/kanade v0.41.x
+          # shipped 1 of 4 windows bins, v0.42.x a DIFFERENT 1 of
+          # 4) but not in isolated diagnostic dispatches — 7
+          # debug runs mirroring this step's exact env all
+          # produced the full set. Root cause is being chased
+          # upstream; in the meantime, the verify-and-rebuild
+          # loop below catches the drop deterministically.
+          #
+          # `cargo metadata --no-deps` rows expose (package_name,
+          # bin_name) per [[bin]] target; the rebuild uses
+          # `cargo build -p <package>` because that's the
+          # granularity cargo lets us isolate. The per-package
+          # path has been reliable since first surfaced (and is
+          # also what consumer repos' "publish single bin to
+          # backend" jobs typically use), so it's the right
+          # fallback.
+          ext=""
+          if [[ "$TARGET" == *windows* ]]; then ext=".exe"; fi
+          rebuilt=0
+          bins_list=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] as $p
+                       | $p.targets[]
+                       | select(.kind | index("bin"))
+                       | "\($p.name)\t\(.name)"' \
+            | sort -u)
+          while IFS=$'\t' read -r pkg bin; do
+            if [[ -z "$pkg" ]]; then continue; fi
+            if [[ ! -f "target/$TARGET/release/${bin}${ext}" ]]; then
+              rebuilt=$((rebuilt + 1))
+              echo "::warning::missing target/$TARGET/release/${bin}${ext} after --workspace --bins; rebuilding via cargo build -p $pkg"
+              cargo build -p "$pkg" --release --target "$TARGET"
+            fi
+          done <<< "$bins_list"
+          if [[ "$rebuilt" -gt 0 ]]; then
+            echo "::notice::verify-and-rebuild fallback fixed $rebuilt missing bin(s) — root cause investigation in progress"
+          fi
+
+          # CodeRabbit #6 MAJOR: hard-verify after the rebuild
+          # pass. If anything is STILL missing, the staging step
+          # below would only warn-and-skip, and the tag would
+          # publish a partial Windows asset set (exactly the bug
+          # this template change is meant to prevent). Loud
+          # `::error::` annotations + non-zero exit on the build
+          # step kill the matrix entry, the release job's `needs:
+          # build` blocks the GitHub Release creation, and the
+          # publish job's `needs: build` blocks crates.io. No
+          # partial state escapes.
+          still_missing=0
+          while IFS=$'\t' read -r pkg bin; do
+            if [[ -z "$pkg" ]]; then continue; fi
+            if [[ ! -f "target/$TARGET/release/${bin}${ext}" ]]; then
+              still_missing=$((still_missing + 1))
+              echo "::error::target/$TARGET/release/${bin}${ext} is STILL missing after per-package rebuild attempt — refusing to ship a partial release"
+            fi
+          done <<< "$bins_list"
+          if [[ "$still_missing" -gt 0 ]]; then
+            echo "::error::$still_missing bin(s) could not be produced; failing the build step"
+            exit 1
+          fi
 
       - name: Stage release artifacts
         shell: bash
