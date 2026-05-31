@@ -1,15 +1,15 @@
 preset = "github.com/yukimemi/pj-presets:rust-workspace"
-applied_at = "2026-05-30T04:38:27.904941558Z"
+applied_at = "2026-05-31T04:51:06.555325531Z"
 
 [[templates]]
 source = "github.com/yukimemi/pj-base"
-rev = "3e3c7ee971897ae6cc71e78d597c838412974f19"
+rev = "98a48d8489551fffcf08e71da8b85d00d5e74dfd"
 version = "0.12.1"
 
 [[templates]]
 source = "github.com/yukimemi/pj-rust"
-rev = "f78e190bac618fc3870b3c4a6e4187eb01c3cc42"
-version = "0.7.0"
+rev = "6ac24c5f06b08962ad3f55e5142606824846ec7a"
+version = "0.8.0"
 
 [[templates]]
 source = "github.com/yukimemi/pj-rust-workspace"
@@ -29,7 +29,7 @@ content_hash = "486c974de88903113ed99b4e643432b7050e88f1031276f5263e8da7b43fe11e
 content_hash = "6d380d1ecc2f882c2011429d548a6f3c774b74f0c757d884453e4667172acc2a"
 
 [files.".github/workflows/apm-bump.yml"]
-content_hash = "aa8595b6417d97fa57fef9f6eb1b07de0ca55a7ce1cfd7c6a7dcb8c96ca0ea11"
+content_hash = "3593899270ad0d4af97595a1a57c7363827635dd863c1672379f68c03140c1a3"
 
 [files.".github/workflows/auto-tag.yml"]
 content_hash = "0796dfb281c7447610035360622ddada137a8e2d89efa574aea89374676d768b"
@@ -50,7 +50,7 @@ content_hash = "4bebd1c3417c33f9d1c51f011694f6d82b098bbb1a5a102ba56e97ab01a866ef
 once_applied = true
 
 [files."AGENTS.md"]
-content_hash = "1a3eb3ddfdf0d41cd8392aa14d5da309533bd5d359b95e8dd802ea38ab180a91"
+content_hash = "a75b27a79e1bf6fb2df991b7628bb8f9fe4a2fe7421a30d5f09423b7e134e7ee"
 
 [files."CLAUDE.md"]
 content_hash = "a76b3af252969b8120128d7ce44f2b6cfdcf88c7420ee00675732f542d047529"
@@ -83,6 +83,7 @@ content_hash = "c750cb285075d0cb0c5c9ea77cd67baf7b0c4af864603cbe6c0c6692e75ed6fb
 content_hash = "2ada1cf4347db9e98fadd67ca72cd9e29042c5bf6ab719d666b5d71f97663e81"
 
 [files."renovate.json"]
+content_hash = "ea464978679041c69a3e18085f9a2ce846b9762ff02ab2801ed22cfbbf1487ae"
 once_applied = true
 
 [files."renri.toml"]
