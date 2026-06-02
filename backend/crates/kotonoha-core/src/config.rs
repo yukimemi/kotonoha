@@ -19,9 +19,52 @@ pub struct Config {
     pub backend: BTreeMap<String, BackendConfig>,
     #[serde(default)]
     pub lesson: BTreeMap<String, LessonRef>,
+    #[serde(default)]
+    pub update: UpdateConfig,
 
     #[serde(skip)]
     pub root_dir: PathBuf,
+}
+
+/// How `kotonoha` keeps itself up to date in the background.
+///
+/// On every `kotonoha serve` launch the binary can quietly check GitHub
+/// for a newer release and — depending on this mode — install it in the
+/// background (the running process keeps the old binary; the new version
+/// applies on the next launch). Mirrors the auto-update modes used across
+/// the yukimemi/* CLIs.
+///
+/// - `off` — do nothing.
+/// - `notify` — only print a banner when a newer release exists; never
+///   install.
+/// - `install` (default) — silently download + swap the binary in the
+///   background, then print a one-line "restart to apply" notice.
+///
+/// The `KOTONOHA_NO_AUTOUPDATE` env var (non-empty and not `"0"`/`"false"`)
+/// overrides this to `off`, regardless of config.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AutoUpdateMode {
+    /// No background update activity at all.
+    Off,
+    /// Print a banner when a newer release exists, but never install.
+    Notify,
+    /// Silently install a newer release in the background (default).
+    #[default]
+    Install,
+}
+
+/// `[update]` section of `kotonoha.toml`.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct UpdateConfig {
+    /// Background auto-update behaviour. Defaults to [`AutoUpdateMode::Install`].
+    #[serde(default)]
+    pub auto_update: AutoUpdateMode,
+    /// Minimum interval between consecutive background update checks
+    /// (humantime format: `"24h"`, `"6h"`, `"1d"`). Unset → `"24h"`;
+    /// invalid values fall back to the default with a warning.
+    #[serde(default)]
+    pub update_check_interval: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -190,6 +233,49 @@ impl Config {
     pub fn avatars_dir(&self) -> PathBuf {
         PathBuf::from(&self.avatars.dir)
     }
+
+    /// Resolve the effective background auto-update mode.
+    ///
+    /// The `KOTONOHA_NO_AUTOUPDATE` env kill-switch takes precedence over
+    /// config and forces [`AutoUpdateMode::Off`]; otherwise the configured
+    /// `[update] auto_update` value is used. Folding the kill-switch in
+    /// here keeps the resolution in one place so call sites can simply use
+    /// `config.update_mode()`.
+    pub fn update_mode(&self) -> AutoUpdateMode {
+        if auto_update_disabled_by_env() {
+            AutoUpdateMode::Off
+        } else {
+            self.update.auto_update
+        }
+    }
+}
+
+/// Pure truthiness of the kill-switch value: disabled when the value is
+/// present, non-empty (after trim), and not `"0"` / `"false"`
+/// (case-insensitive).
+///
+/// Split out from [`auto_update_disabled_by_env`] so the decision logic
+/// can be unit-tested **by value**, without mutating the global process
+/// environment (which would race under the default parallel test runner).
+fn env_value_disables(value: Option<&str>) -> bool {
+    match value {
+        Some(v) => {
+            let v = v.trim();
+            !v.is_empty() && !v.eq_ignore_ascii_case("0") && !v.eq_ignore_ascii_case("false")
+        }
+        None => false,
+    }
+}
+
+/// True when `KOTONOHA_NO_AUTOUPDATE` is set to a "truthy" value
+/// (non-empty and not `"0"` / `"false"`). Takes precedence over config.
+///
+/// Uses [`std::env::var_os`] so a non-Unicode value still counts as set
+/// rather than being silently treated as absent.
+fn auto_update_disabled_by_env() -> bool {
+    let raw = std::env::var_os("KOTONOHA_NO_AUTOUPDATE");
+    let value = raw.as_ref().map(|v| v.to_string_lossy());
+    env_value_disables(value.as_deref())
 }
 
 /// Read a TOML file, run teravars's `[vars]` self-resolve, then
@@ -209,4 +295,113 @@ pub fn render_toml(path: &Path) -> anyhow::Result<String> {
 
     let rendered = engine.render(&raw, &ctx)?;
     Ok(rendered)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Serializes access to `KOTONOHA_NO_AUTOUPDATE` across tests. Cargo
+    /// runs tests in parallel by default; since `update_mode()` reads this
+    /// env var, every test that touches it (setting it, or asserting the
+    /// resolved mode) must hold this lock so the reads/writes don't race.
+    static ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Minimal valid config with an optional trailing `[update]` block.
+    fn config_with_update(update_section: &str) -> Config {
+        let toml = format!(
+            r#"
+[server]
+bind = "127.0.0.1:7400"
+{update_section}
+"#
+        );
+        toml::from_str(&toml).expect("config should parse")
+    }
+
+    #[test]
+    fn auto_update_defaults_to_install_when_section_absent() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        let cfg = config_with_update("");
+        assert_eq!(cfg.update.auto_update, AutoUpdateMode::Install);
+        assert_eq!(cfg.update_mode(), AutoUpdateMode::Install);
+        assert_eq!(cfg.update.update_check_interval, None);
+    }
+
+    #[test]
+    fn auto_update_defaults_to_install_when_section_present_but_field_absent() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        let cfg = config_with_update("[update]\n");
+        assert_eq!(cfg.update_mode(), AutoUpdateMode::Install);
+    }
+
+    #[test]
+    fn auto_update_parses_off() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        let cfg = config_with_update("[update]\nauto_update = \"off\"\n");
+        assert_eq!(cfg.update_mode(), AutoUpdateMode::Off);
+    }
+
+    #[test]
+    fn auto_update_parses_notify() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        let cfg = config_with_update("[update]\nauto_update = \"notify\"\n");
+        assert_eq!(cfg.update_mode(), AutoUpdateMode::Notify);
+    }
+
+    #[test]
+    fn auto_update_parses_install() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        let cfg = config_with_update("[update]\nauto_update = \"install\"\n");
+        assert_eq!(cfg.update_mode(), AutoUpdateMode::Install);
+    }
+
+    #[test]
+    fn auto_update_parses_check_interval() {
+        let cfg = config_with_update("[update]\nupdate_check_interval = \"12h\"\n");
+        assert_eq!(cfg.update.update_check_interval.as_deref(), Some("12h"));
+    }
+
+    #[test]
+    fn auto_update_mode_default_is_install() {
+        assert_eq!(AutoUpdateMode::default(), AutoUpdateMode::Install);
+    }
+
+    /// Pure by-value test of the kill-switch decision. Deliberately does
+    /// NOT touch the process environment, so it is safe to run in parallel
+    /// with every other test (no `ENV_MUTEX`, no data race).
+    #[test]
+    fn env_value_disables_truthy_and_falsy() {
+        // Absent / unset → not disabled.
+        assert!(!env_value_disables(None));
+
+        // Truthy.
+        assert!(env_value_disables(Some("1")));
+        assert!(env_value_disables(Some("true")));
+        assert!(env_value_disables(Some("  yes  "))); // arbitrary non-empty, trimmed
+
+        // Falsy.
+        for falsy in ["", "   ", "0", "false", "FALSE", " false "] {
+            assert!(
+                !env_value_disables(Some(falsy)),
+                "{falsy:?} should not disable auto-update"
+            );
+        }
+    }
+
+    #[test]
+    fn env_kill_switch_forces_off_in_update_mode() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        let saved = std::env::var("KOTONOHA_NO_AUTOUPDATE").ok();
+
+        // Config wants `install`, but the env kill-switch wins.
+        let cfg = config_with_update("[update]\nauto_update = \"install\"\n");
+        unsafe { std::env::set_var("KOTONOHA_NO_AUTOUPDATE", "1") };
+        assert_eq!(cfg.update_mode(), AutoUpdateMode::Off);
+
+        match saved {
+            Some(v) => unsafe { std::env::set_var("KOTONOHA_NO_AUTOUPDATE", v) },
+            None => unsafe { std::env::remove_var("KOTONOHA_NO_AUTOUPDATE") },
+        }
+    }
 }

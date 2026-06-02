@@ -96,6 +96,35 @@ Booth / VRoid Hub の CC0 / フリーモデルが手軽。
 
 画面右上のセレクタで `claude` / `gemini` / `codex` を切り替え。CLI のパスや引数は `configs/kotonoha.toml` の `[backend.*]` で調整可能。
 
+## 自動アップデート
+
+`kotonoha serve` は起動時にバックグラウンドで GitHub release を確認し、
+新しいバージョンがあれば自動でバイナリを入れ替えます (実行中のプロセスは
+旧バイナリのまま、次回起動から新版が反映)。動作は `configs/kotonoha.toml`
+の `[update]` セクションで制御します:
+
+```toml
+[update]
+# off     = 何もしない
+# notify  = 新版があれば banner を出すだけ (install しない)
+# install = 静かにバックグラウンドで install (デフォルト)
+auto_update = "install"
+# 自動チェックの最小間隔 (humantime 書式)。未指定なら "24h"。
+update_check_interval = "24h"
+```
+
+| キー | 型 | デフォルト | 説明 |
+| --- | --- | --- | --- |
+| `auto_update` | `"off"` / `"notify"` / `"install"` | `"install"` | バックグラウンド自動アップデートの挙動。`install` は新版を静かにダウンロード + バイナリ入替して、install できたときだけ stderr に 1 行 (`✓ kotonoha <version> installed in the background — restart to apply.`) を出す。`notify` は banner のみ。`off` は無効。ネットワーク / ロック失敗は silent skip (resilience) |
+| `update_check_interval` | duration 文字列 (`"24h"`, `"6h"`, `"1d"`) | `"24h"` | 自動チェックの最小間隔。humantime 書式。不正値は warn を出して default にフォールバック |
+
+環境変数 `KOTONOHA_NO_AUTOUPDATE` を非空かつ `"0"`/`"false"` 以外の値に
+設定すると、config の設定に関わらず自動アップデートを **完全に無効化**
+します (config より優先)。
+
+手動でアップデートしたいときは `kotonoha self-update`
+(`--yes` で確認を省略、`--check` で在否のみ表示)。
+
 ## レッスン (システムプロンプト) を作る
 
 `configs/lessons/<name>.toml` に teravars 形式で書いて、`configs/kotonoha.toml` の `[lesson.<name>]` で参照する:
