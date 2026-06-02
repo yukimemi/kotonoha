@@ -79,8 +79,9 @@ jobs:
             os: ubuntu-latest
           - target: x86_64-pc-windows-msvc
             os: windows-latest
-          - target: x86_64-apple-darwin
-            os: macos-latest
+          # x86_64-apple-darwin (Intel Mac) dropped: the `ort`/ONNX Runtime
+          # backend (cu12) has no prebuilt for that target, so the build fails.
+          # Apple Silicon (aarch64) is the only supported macOS target.
           - target: aarch64-apple-darwin
             os: macos-latest
     steps:
