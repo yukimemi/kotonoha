@@ -20,6 +20,7 @@ use kotonoha_tts::voicevox::Tts as VoicevoxTts;
 
 mod setup_tts;
 mod setup_voicevox;
+mod updater;
 mod web;
 mod ws;
 
@@ -55,6 +56,20 @@ enum Cmd {
     /// Japanese-language TTS (Kokoro's misaki-lean phonemizer is
     /// English-only).
     SetupVoicevox(setup_voicevox::SetupVoicevoxArgs),
+    /// Update the kotonoha binary to the latest GitHub release.
+    ///
+    /// Detects the install method (cargo / direct binary / dev build)
+    /// and dispatches accordingly. By default `serve` also auto-updates
+    /// in the background (see `[update] auto_update` in the config); this
+    /// command runs the update interactively on demand.
+    SelfUpdate {
+        /// Skip the confirmation prompt.
+        #[arg(long)]
+        yes: bool,
+        /// Report availability and exit without installing.
+        #[arg(long)]
+        check: bool,
+    },
 }
 
 #[derive(Clone)]
@@ -79,13 +94,48 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let cli = Cli::parse();
+
+    // `self-update` is independent of the config — a user may run it with
+    // no config file present — so handle it before loading the config.
+    if let Some(Cmd::SelfUpdate { yes, check }) = cli.cmd {
+        return updater::run_self_update(yes, check, false).await;
+    }
+
     let config = Config::load(&cli.config)
         .with_context(|| format!("load config {}", cli.config.display()))?;
 
+    // Resolve the effective background auto-update mode. `update_mode`
+    // already folds in the `KOTONOHA_NO_AUTOUPDATE` env kill-switch.
+    let mode = config.update_mode();
+    let interval = config.update.update_check_interval.clone();
+
     match cli.cmd.unwrap_or(Cmd::Serve) {
-        Cmd::Serve => run_serve(config).await,
-        Cmd::SetupTts(args) => setup_tts::run(&config, args).await,
-        Cmd::SetupVoicevox(args) => setup_voicevox::run(&config, args).await,
+        Cmd::Serve => {
+            // The server runs (effectively) forever and may never exit
+            // cleanly, so use kaishin's fire-and-forget background spawn
+            // rather than a finalize-at-exit hook.
+            updater::spawn_serve_auto_update(mode, interval.as_deref());
+            run_serve(config).await
+        }
+        Cmd::SetupTts(args) => {
+            // Short-lived: spawn the check, run the command, then await
+            // the result with a short bounded wait.
+            let handle = updater::maybe_spawn_auto_update_check(mode, interval.as_deref());
+            let res = setup_tts::run(&config, args).await;
+            if let Some(handle) = handle {
+                updater::finalize_auto_update_check(handle).await;
+            }
+            res
+        }
+        Cmd::SetupVoicevox(args) => {
+            let handle = updater::maybe_spawn_auto_update_check(mode, interval.as_deref());
+            let res = setup_voicevox::run(&config, args).await;
+            if let Some(handle) = handle {
+                updater::finalize_auto_update_check(handle).await;
+            }
+            res
+        }
+        Cmd::SelfUpdate { .. } => unreachable!("handled before config load"),
     }
 }
 

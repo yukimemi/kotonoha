@@ -19,6 +19,24 @@ bind = "{{ vars.server_bind }}"
 # same Tailscale / Wi-Fi. Tighten in production.
 cors_allow_origins = ["*"]
 
+# ---- background auto-update ----------------------------------------
+#
+# `kotonoha serve` checks GitHub for a newer release on launch and,
+# depending on `auto_update`, installs it in the background. The
+# running process keeps the old binary; the new version applies on the
+# next launch.
+#
+#   off     = do nothing
+#   notify  = only print a banner when a newer release exists
+#   install = silently download + swap the binary (default)
+#
+# Set `KOTONOHA_NO_AUTOUPDATE` (non-empty, not "0"/"false") to disable
+# regardless of this setting. Run `kotonoha self-update` to update on
+# demand. This block is optional — omitting it defaults to `install`.
+[update]
+auto_update = "install"
+update_check_interval = "24h"
+
 [avatars]
 dir = "./avatars"
 default = "{{ vars.default_avatar }}"

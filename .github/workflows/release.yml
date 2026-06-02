@@ -70,6 +70,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # `target` is the Rust target triple. kaishin's self_update path
+        # matches a GitHub release asset by the bin name AND this triple
+        # substring, so the staged asset names must embed it for
+        # background auto-update / `kotonoha self-update` to find them.
         include:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
@@ -187,19 +191,38 @@ jobs:
             echo "::warning::no [[bin]] targets in this workspace; nothing to stage"
             exit 0
           fi
+          # Package each bin into a target-triple-named ARCHIVE rather
+          # than shipping the bare binary: kaishin's self_update path
+          # (`kotonoha self-update` / background auto-update) matches a
+          # release asset by `<bin>` + the running target-triple
+          # substring (e.g. `kotonoha-x86_64-pc-windows-msvc.zip`) and
+          # extracts it. Windows ships a `.zip`; the rest ship `.tar.gz`
+          # per self_update conventions. The `<bin>-<TARGET>` stem is
+          # kept so the triple is embedded in the asset name.
+          #
+          # NOTE: this diverges from the upstream kata template (which
+          # stages bare binaries). A `kata apply` will revert it — if
+          # this is re-rendered, move the archive packaging into a
+          # sibling `release-extras.yml` instead of re-hand-editing here.
           for bin in $bins; do
+            stem="$bin-$TARGET"
             if [[ "$TARGET" == *windows* ]]; then
               src="target/$TARGET/release/$bin.exe"
-              dst="dist/$bin-$TARGET.exe"
             else
               src="target/$TARGET/release/$bin"
-              dst="dist/$bin-$TARGET"
             fi
-            if [ -f "$src" ]; then
-              cp "$src" "$dst"
-              echo "staged $dst"
-            else
+            if [ ! -f "$src" ]; then
               echo "::warning::missing $src (skipping)"
+              continue
+            fi
+            if [[ "$TARGET" == *windows* ]]; then
+              cp "$src" "$stem.exe"
+              7z a "dist/$stem.zip" "$stem.exe" >/dev/null
+              echo "staged dist/$stem.zip"
+            else
+              cp "$src" "$stem"
+              tar czf "dist/$stem.tar.gz" "$stem"
+              echo "staged dist/$stem.tar.gz"
             fi
           done
           ls -la dist/
