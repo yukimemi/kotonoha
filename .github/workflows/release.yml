@@ -18,15 +18,19 @@
 # project-specific bit (binary names, publishable library list,
 # inter-crate dep order) is discovered from `cargo metadata` at run
 # time:
-#   * `cargo build --release --workspace --bins` builds every
-#     `[[bin]]` target in the workspace, then a verify-and-rebuild
-#     loop catches the windows-msvc edge case where some bins are
-#     silently absent from `target/<target>/release/` despite
-#     cargo reporting success (a stochastic hardlink race under
-#     parallel link.exe; symptom: each tag release of a multi-bin
-#     workspace ships a different ONE of the N bins). The loop
-#     only fires when something IS missing, so the fast path
-#     stays the common path.
+#   * The build matrix produces every `[[bin]]` target. Non-windows
+#     targets use the fast `cargo build --release --workspace --bins`.
+#     windows-msvc instead builds each bin package on its own
+#     (`cargo build -p <pkg>` per package), because the workspace
+#     build hits a stochastic hardlink race under parallel link.exe
+#     where cargo reports "Finished" but some bins never get uplifted
+#     from `deps/` to `release/` (symptom: each tag release of a
+#     multi-bin workspace shipped a different subset of the N bins;
+#     yukimemi/kanade v0.43.7 dropped 3 of 4 and the older in-place
+#     rebuild couldn't recover the already-raced target). Serial
+#     per-package builds serialise the uplifts and sidestep it. A
+#     verify-and-rebuild + hard-verify safety net still guards every
+#     target.
 #   * `jq` filters `cargo metadata`'s package list down to those
 #     with `kind: ["bin"]` and stages them under `dist/` with a
 #     per-target filename suffix (`<bin>-<target>` on Unix,
@@ -88,59 +92,69 @@ jobs:
           TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
-          cargo build --release --workspace --bins --target "$TARGET"
-
-          # windows-msvc + multi-bin workspaces hit a stochastic
-          # hardlink race under parallel link.exe where cargo
-          # reports "Finished" but some `[[bin]]` targets are
-          # absent from `target/<target>/release/`. Reproduces
-          # in production tag releases (yukimemi/kanade v0.41.x
-          # shipped 1 of 4 windows bins, v0.42.x a DIFFERENT 1 of
-          # 4) but not in isolated diagnostic dispatches — 7
-          # debug runs mirroring this step's exact env all
-          # produced the full set. Root cause is being chased
-          # upstream; in the meantime, the verify-and-rebuild
-          # loop below catches the drop deterministically.
-          #
-          # `cargo metadata --no-deps` rows expose (package_name,
-          # bin_name) per [[bin]] target; the rebuild uses
-          # `cargo build -p <package>` because that's the
-          # granularity cargo lets us isolate. The per-package
-          # path has been reliable since first surfaced (and is
-          # also what consumer repos' "publish single bin to
-          # backend" jobs typically use), so it's the right
-          # fallback.
           ext=""
           if [[ "$TARGET" == *windows* ]]; then ext=".exe"; fi
-          rebuilt=0
+
+          # (package, bin) pairs for every [[bin]] target in the
+          # workspace — drives both the windows build loop and the
+          # verify below.
           bins_list=$(cargo metadata --no-deps --format-version 1 \
             | jq -r '.packages[] as $p
                        | $p.targets[]
                        | select(.kind | index("bin"))
                        | "\($p.name)\t\(.name)"' \
             | sort -u)
+
+          # windows-msvc + `cargo build --workspace --bins` hits a
+          # stochastic hardlink race under parallel link.exe: cargo
+          # reports "Finished" but only some `[[bin]]` targets land in
+          # `target/<target>/release/` (yukimemi/kanade v0.41.x shipped
+          # 1 of 4, v0.42.x a different 1 of 4, v0.43.7 dropped 3 of 4
+          # AND the in-place per-package rebuild below couldn't recover
+          # the already-raced target). The race is in the parallel
+          # "uplift" of each bin from `deps/<name>-<hash>.exe` to
+          # `release/<name>.exe`; building each bin package on its own
+          # serialises those uplifts and sidesteps it. The per-package
+          # path has never dropped a bin (it's what consumer repos'
+          # release-extras + single-bin-to-backend jobs already use).
+          # Slower than the workspace build (no cross-package
+          # parallelism) but deterministic — the right trade for a
+          # release. Non-windows targets don't hit the race, so they
+          # keep the fast workspace build.
+          if [[ "$TARGET" == *windows* ]]; then
+            pkgs=$(echo "$bins_list" | cut -f1 | sort -u)
+            for pkg in $pkgs; do
+              [[ -z "$pkg" ]] && continue
+              echo "::group::cargo build -p $pkg --release ($TARGET)"
+              cargo build -p "$pkg" --release --target "$TARGET"
+              echo "::endgroup::"
+            done
+          else
+            cargo build --release --workspace --bins --target "$TARGET"
+          fi
+
+          # Safety net for ALL targets: if the build above somehow left
+          # a bin missing, rebuild it per-package once. Kept as defence
+          # in depth even though the per-package windows path shouldn't
+          # need it.
+          rebuilt=0
           while IFS=$'\t' read -r pkg bin; do
             if [[ -z "$pkg" ]]; then continue; fi
             if [[ ! -f "target/$TARGET/release/${bin}${ext}" ]]; then
               rebuilt=$((rebuilt + 1))
-              echo "::warning::missing target/$TARGET/release/${bin}${ext} after --workspace --bins; rebuilding via cargo build -p $pkg"
+              echo "::warning::missing target/$TARGET/release/${bin}${ext}; rebuilding via cargo build -p $pkg"
               cargo build -p "$pkg" --release --target "$TARGET"
             fi
           done <<< "$bins_list"
           if [[ "$rebuilt" -gt 0 ]]; then
-            echo "::notice::verify-and-rebuild fallback fixed $rebuilt missing bin(s) — root cause investigation in progress"
+            echo "::notice::verify-and-rebuild fallback fixed $rebuilt missing bin(s)"
           fi
 
-          # CodeRabbit #6 MAJOR: hard-verify after the rebuild
-          # pass. If anything is STILL missing, the staging step
-          # below would only warn-and-skip, and the tag would
-          # publish a partial Windows asset set (exactly the bug
-          # this template change is meant to prevent). Loud
-          # `::error::` annotations + non-zero exit on the build
-          # step kill the matrix entry, the release job's `needs:
-          # build` blocks the GitHub Release creation, and the
-          # publish job's `needs: build` blocks crates.io. No
-          # partial state escapes.
+          # Hard-verify: if anything is STILL missing, fail loudly
+          # rather than let the staging step warn-and-skip and ship a
+          # partial asset set. A non-zero exit kills the matrix entry,
+          # and `release`/`publish` (both `needs: build`) stay blocked —
+          # no partial state escapes.
           still_missing=0
           while IFS=$'\t' read -r pkg bin; do
             if [[ -z "$pkg" ]]; then continue; fi
