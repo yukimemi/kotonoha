@@ -91,6 +91,29 @@ jobs:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
 
+      # rust-embed bakes web/dist/ at compile time, so any workspace that
+      # embeds an SPA must build it (via its conventional `web-build`
+      # cargo-make task) before `cargo build`/`cargo publish`; workspaces
+      # without that task skip these steps.
+      - name: Detect embedded frontend
+        id: frontend
+        shell: bash
+        run: |
+          if [ -f Makefile.toml ] && grep -q '^\[tasks\.web-build\]' Makefile.toml; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: oven-sh/setup-bun@v2
+        if: steps.frontend.outputs.present == 'true'
+      - uses: taiki-e/install-action@v2
+        if: steps.frontend.outputs.present == 'true'
+        with:
+          tool: cargo-make
+      - name: Build embedded frontend (cargo make web-build)
+        if: steps.frontend.outputs.present == 'true'
+        run: cargo make web-build
+
       - name: Build workspace binaries
         shell: bash
         env:
@@ -257,6 +280,29 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
+
+      # rust-embed bakes web/dist/ at compile time, so any workspace that
+      # embeds an SPA must build it (via its conventional `web-build`
+      # cargo-make task) before `cargo build`/`cargo publish`; workspaces
+      # without that task skip these steps.
+      - name: Detect embedded frontend
+        id: frontend
+        shell: bash
+        run: |
+          if [ -f Makefile.toml ] && grep -q '^\[tasks\.web-build\]' Makefile.toml; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: oven-sh/setup-bun@v2
+        if: steps.frontend.outputs.present == 'true'
+      - uses: taiki-e/install-action@v2
+        if: steps.frontend.outputs.present == 'true'
+        with:
+          tool: cargo-make
+      - name: Build embedded frontend (cargo make web-build)
+        if: steps.frontend.outputs.present == 'true'
+        run: cargo make web-build
 
       - name: Publish workspace members
         shell: bash
