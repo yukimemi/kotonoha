@@ -380,6 +380,6 @@ jobs:
 
           for pkg in $order; do
             echo "::group::cargo publish -p $pkg"
-            cargo publish --locked -p "$pkg"
+            cargo publish --locked --allow-dirty -p "$pkg"
             echo "::endgroup::"
           done
