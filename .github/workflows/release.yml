@@ -18,19 +18,21 @@
 # project-specific bit (binary names, publishable library list,
 # inter-crate dep order) is discovered from `cargo metadata` at run
 # time:
-#   * The build matrix produces every `[[bin]]` target. Non-windows
-#     targets use the fast `cargo build --release --workspace --bins`.
-#     windows-msvc instead builds each bin package on its own
-#     (`cargo build -p <pkg>` per package), because the workspace
-#     build hits a stochastic hardlink race under parallel link.exe
-#     where cargo reports "Finished" but some bins never get uplifted
-#     from `deps/` to `release/` (symptom: each tag release of a
-#     multi-bin workspace shipped a different subset of the N bins;
-#     yukimemi/kanade v0.43.7 dropped 3 of 4 and the older in-place
-#     rebuild couldn't recover the already-raced target). Serial
-#     per-package builds serialise the uplifts and sidestep it. A
-#     verify-and-rebuild + hard-verify safety net still guards every
-#     target.
+#   * The build matrix runs `cargo build --release --workspace --bins`
+#     for every target. On windows-msvc cargo reports "Finished" but
+#     silently drops some bins from `target/<t>/release/`: it links
+#     each bin to `deps/<stem>-<hash>.exe` then "uplifts" (hardlinks)
+#     it to `release/<bin>.exe`, and that uplift is skipped when a
+#     stale fingerprint claims it's already done — so the convenience
+#     copy is absent while the real artifact still sits in deps/.
+#     (Each tag shipped a different subset of the N bins; neither
+#     `--workspace --bins` nor a per-package rebuild loop cured it.)
+#     Two fixes: rust-cache is disabled for windows (it's the stale-
+#     fingerprint source — it restores the "uplifted" mark without the
+#     file), and a deps-recovery step copies any still-missing bin
+#     straight out of deps/. A hard-verify then fails the build if a
+#     bin is in neither place, so `release`/`publish` never ship a
+#     partial set.
 #   * `jq` filters `cargo metadata`'s package list down to those
 #     with `kind: ["bin"]` and stages them under `dist/` with a
 #     per-target filename suffix (`<bin>-<target>` on Unix,
@@ -70,18 +72,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # `target` is the Rust target triple. kaishin's self_update path
-        # matches a GitHub release asset by the bin name AND this triple
-        # substring, so the staged asset names must embed it for
-        # background auto-update / `kotonoha self-update` to find them.
         include:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
           - target: x86_64-pc-windows-msvc
             os: windows-latest
-          # x86_64-apple-darwin (Intel Mac) dropped: the `ort`/ONNX Runtime
-          # backend (cu12) has no prebuilt for that target, so the build fails.
-          # Apple Silicon (aarch64) is the only supported macOS target.
+          # Intel Mac (x86_64-apple-darwin) dropped — Apple Silicon only.
+          # (Some crates' native deps, e.g. ort/ONNX Runtime, ship no
+          # x86_64-apple-darwin prebuilt and fail the build there.)
           - target: aarch64-apple-darwin
             os: macos-latest
     steps:
@@ -89,12 +87,20 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+      # Cache is skipped on windows-msvc: a restored cache brings back
+      # cargo's "binary already uplifted" fingerprints WITHOUT the
+      # corresponding `target/<t>/release/<bin>.exe` files (rust-cache
+      # doesn't persist the top-level uplifted binaries), so cargo skips
+      # re-uplifting and the bin is silently absent from release/. A
+      # fresh windows build uplifts correctly; the deps-recovery in the
+      # build step is the belt-and-suspenders.
       - uses: Swatinem/rust-cache@v2
+        if: ${{ !contains(matrix.target, 'windows') }}
 
-      # rust-embed bakes web/dist/ at compile time, so any workspace that
-      # embeds an SPA must build it (via its conventional `web-build`
-      # cargo-make task) before `cargo build`/`cargo publish`; workspaces
-      # without that task skip these steps.
+      # rust-embed bakes web/dist/ into the binary at compile time, so any
+      # workspace that embeds an SPA must build the frontend (via its
+      # conventional `web-build` cargo-make task) before `cargo build`;
+      # workspaces without a `[tasks.web-build]` in Makefile.toml skip these.
       - name: Detect embedded frontend
         id: frontend
         shell: bash
@@ -124,71 +130,74 @@ jobs:
           if [[ "$TARGET" == *windows* ]]; then ext=".exe"; fi
 
           # (package, bin) pairs for every [[bin]] target in the
-          # workspace — drives both the windows build loop and the
-          # verify below.
+          # workspace — drives the verify + deps-recovery below.
+          # `tr -d '\r'`: jq on windows-latest emits CRLF, which would
+          # otherwise leave a trailing \r on each bin name — it then
+          # rides into the recovered/staged filenames as
+          # `kanade-agent\r-<target>.exe` (a corrupt asset name).
           bins_list=$(cargo metadata --no-deps --format-version 1 \
             | jq -r '.packages[] as $p
                        | $p.targets[]
                        | select(.kind | index("bin"))
                        | "\($p.name)\t\(.name)"' \
+            | tr -d '\r' \
             | sort -u)
 
-          # windows-msvc + `cargo build --workspace --bins` hits a
-          # stochastic hardlink race under parallel link.exe: cargo
-          # reports "Finished" but only some `[[bin]]` targets land in
-          # `target/<target>/release/` (yukimemi/kanade v0.41.x shipped
-          # 1 of 4, v0.42.x a different 1 of 4, v0.43.7 dropped 3 of 4
-          # AND the in-place per-package rebuild below couldn't recover
-          # the already-raced target). The race is in the parallel
-          # "uplift" of each bin from `deps/<name>-<hash>.exe` to
-          # `release/<name>.exe`; building each bin package on its own
-          # serialises those uplifts and sidesteps it. The per-package
-          # path has never dropped a bin (it's what consumer repos'
-          # release-extras + single-bin-to-backend jobs already use).
-          # Slower than the workspace build (no cross-package
-          # parallelism) but deterministic — the right trade for a
-          # release. Non-windows targets don't hit the race, so they
-          # keep the fast workspace build.
+          cargo build --release --workspace --bins --target "$TARGET"
+
+          # windows-msvc silently drops bins from `target/<t>/release/`:
+          # cargo links each bin to `deps/<stem>-<hash>.exe` and then
+          # "uplifts" (hardlinks) it to `release/<bin>.exe`, but the
+          # uplift is skipped when a stale fingerprint claims it's
+          # already done — so the release/ copy is absent while the real
+          # linker output still sits in deps/. (yukimemi/kanade shipped a
+          # different subset of its N bins each tag: v0.41.x 1-of-4,
+          # v0.42.x a different 1-of-4, v0.43.8 kept only the last-built.
+          # Neither `--workspace --bins` nor a per-package rebuild loop
+          # cured it — the rebuild just no-ops on the "fresh" fingerprint
+          # and re-skips the uplift.) The fingerprint comes from the
+          # restored cache, disabled for windows above; this recovery is
+          # the belt-and-suspenders that copies the real artifact out of
+          # deps/ whenever the uplifted copy is missing. `stem` matches
+          # the bin name with `-`/`_` unified (cargo normalises one to
+          # the other in artifact filenames), newest match wins.
           if [[ "$TARGET" == *windows* ]]; then
-            pkgs=$(echo "$bins_list" | cut -f1 | sort -u)
-            for pkg in $pkgs; do
+            recovered=0
+            while IFS=$'\t' read -r pkg bin; do
               [[ -z "$pkg" ]] && continue
-              echo "::group::cargo build -p $pkg --release ($TARGET)"
-              cargo build -p "$pkg" --release --target "$TARGET"
-              echo "::endgroup::"
-            done
-          else
-            cargo build --release --workspace --bins --target "$TARGET"
-          fi
-
-          # Safety net for ALL targets: if the build above somehow left
-          # a bin missing, rebuild it per-package once. Kept as defence
-          # in depth even though the per-package windows path shouldn't
-          # need it.
-          rebuilt=0
-          while IFS=$'\t' read -r pkg bin; do
-            if [[ -z "$pkg" ]]; then continue; fi
-            if [[ ! -f "target/$TARGET/release/${bin}${ext}" ]]; then
-              rebuilt=$((rebuilt + 1))
-              echo "::warning::missing target/$TARGET/release/${bin}${ext}; rebuilding via cargo build -p $pkg"
-              cargo build -p "$pkg" --release --target "$TARGET"
+              rel="target/$TARGET/release/${bin}${ext}"
+              [[ -f "$rel" ]] && continue
+              want=$(echo "$bin" | tr '-' '_')
+              cand=""
+              for f in "target/$TARGET/release/deps/"*"${ext}"; do
+                [[ -e "$f" ]] || continue
+                base=$(basename "$f" "${ext}")
+                stem=$(echo "${base%-*}" | tr '-' '_')
+                [[ "$stem" == "$want" ]] || continue
+                if [[ -z "$cand" || "$f" -nt "$cand" ]]; then cand="$f"; fi
+              done
+              if [[ -n "$cand" ]]; then
+                cp -f "$cand" "$rel"
+                recovered=$((recovered + 1))
+                echo "::notice::recovered $rel from deps/$(basename "$cand") (uplift was skipped)"
+              fi
+            done <<< "$bins_list"
+            if [[ "$recovered" -gt 0 ]]; then
+              echo "::notice::deps-recovery staged $recovered windows bin(s) the uplift skipped"
             fi
-          done <<< "$bins_list"
-          if [[ "$rebuilt" -gt 0 ]]; then
-            echo "::notice::verify-and-rebuild fallback fixed $rebuilt missing bin(s)"
           fi
 
-          # Hard-verify: if anything is STILL missing, fail loudly
-          # rather than let the staging step warn-and-skip and ship a
-          # partial asset set. A non-zero exit kills the matrix entry,
-          # and `release`/`publish` (both `needs: build`) stay blocked —
-          # no partial state escapes.
+          # Hard-verify: if a bin is in neither release/ nor recoverable
+          # from deps/, fail loudly rather than let the staging step
+          # warn-and-skip and ship a partial asset set. A non-zero exit
+          # kills the matrix entry, and `release`/`publish` (both
+          # `needs: build`) stay blocked — no partial state escapes.
           still_missing=0
           while IFS=$'\t' read -r pkg bin; do
             if [[ -z "$pkg" ]]; then continue; fi
             if [[ ! -f "target/$TARGET/release/${bin}${ext}" ]]; then
               still_missing=$((still_missing + 1))
-              echo "::error::target/$TARGET/release/${bin}${ext} is STILL missing after per-package rebuild attempt — refusing to ship a partial release"
+              echo "::error::target/$TARGET/release/${bin}${ext} is STILL missing (not in release/, not recoverable from deps/) — refusing to ship a partial release"
             fi
           done <<< "$bins_list"
           if [[ "$still_missing" -gt 0 ]]; then
@@ -206,28 +215,25 @@ jobs:
           # `cargo metadata --no-deps` enumerates every workspace
           # member's targets; we keep only `bin` kinds so libs flow
           # through the `publish` job instead of becoming downloads.
+          # `tr -d '\r'` strips the CRLF jq emits on windows-latest (see
+          # the build step) so the staged `dist/<bin>-<target>.exe`
+          # name doesn't pick up a stray \r.
           bins=$(cargo metadata --no-deps --format-version 1 \
             | jq -r '.packages[].targets[]
                        | select(.kind | index("bin"))
                        | .name' \
+            | tr -d '\r' \
             | sort -u)
           if [ -z "$bins" ]; then
             echo "::warning::no [[bin]] targets in this workspace; nothing to stage"
             exit 0
           fi
           # Package each bin into a target-triple-named ARCHIVE rather
-          # than shipping the bare binary: kaishin's self_update path
-          # (`kotonoha self-update` / background auto-update) matches a
-          # release asset by `<bin>` + the running target-triple
-          # substring (e.g. `kotonoha-x86_64-pc-windows-msvc.zip`) and
-          # extracts it. Windows ships a `.zip`; the rest ship `.tar.gz`
-          # per self_update conventions. The `<bin>-<TARGET>` stem is
-          # kept so the triple is embedded in the asset name.
-          #
-          # NOTE: this diverges from the upstream kata template (which
-          # stages bare binaries). A `kata apply` will revert it — if
-          # this is re-rendered, move the archive packaging into a
-          # sibling `release-extras.yml` instead of re-hand-editing here.
+          # than shipping the bare binary, so a self-updater that uses
+          # the `self_update` crate (e.g. via `kaishin`) can locate the
+          # asset by `<bin>` + the running target-triple substring
+          # (e.g. `<bin>-x86_64-pc-windows-msvc.zip`) and extract it.
+          # Windows ships a `.zip` (7-Zip); the rest ship a `.tar.gz`.
           for bin in $bins; do
             stem="$bin-$TARGET"
             if [[ "$TARGET" == *windows* ]]; then
@@ -281,10 +287,10 @@ jobs:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
 
-      # rust-embed bakes web/dist/ at compile time, so any workspace that
-      # embeds an SPA must build it (via its conventional `web-build`
-      # cargo-make task) before `cargo build`/`cargo publish`; workspaces
-      # without that task skip these steps.
+      # rust-embed bakes web/dist/ into the crate at compile time, so any
+      # workspace that embeds an SPA must build the frontend (via its
+      # conventional `web-build` cargo-make task) before `cargo publish`;
+      # workspaces without a `[tasks.web-build]` in Makefile.toml skip these.
       - name: Detect embedded frontend
         id: frontend
         shell: bash
