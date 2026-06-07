@@ -124,7 +124,7 @@ export default function App() {
 
       {/* Mobile settings panel — slides down when open, stacks selectors vertically. */}
       {settingsOpen && (
-        <div className="z-10 shrink-0 border-b border-kotonoha-ink/10 bg-white/95 px-4 py-3 shadow-sm md:hidden">
+        <div className="z-10 shrink-0 border-b border-kotonoha-ink/10 bg-white/95 px-4 py-3 shadow-xs md:hidden">
           <Selectors {...selectorsProps} stacked />
         </div>
       )}

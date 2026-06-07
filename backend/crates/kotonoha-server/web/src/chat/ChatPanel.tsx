@@ -464,7 +464,7 @@ export default function ChatPanel({ backend, lesson, ttsMode, kokoroVoice, voice
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           placeholder="Type in English or 日本語…"
-          className="h-10 min-w-0 flex-1 rounded-full border border-kotonoha-ink/20 bg-white px-4 font-en text-base outline-none focus:border-kotonoha-leaf"
+          className="h-10 min-w-0 flex-1 rounded-full border border-kotonoha-ink/20 bg-white px-4 font-en text-base outline-hidden focus:border-kotonoha-leaf"
         />
         <button
           type="submit"
