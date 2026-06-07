@@ -1,6 +1,6 @@
 [package]
 name        = "kotonoha-llm"
-description = "Direct HTTP API backends for kotonoha (Gemini today; Anthropic / OpenAI in scope)."
+description = "Direct HTTP API backends for kotonoha (Gemini + OpenAI-compatible: OpenRouter / OpenAI / DeepSeek / custom base_url)."
 version.workspace      = true
 edition.workspace      = true
 rust-version.workspace = true

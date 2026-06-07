@@ -18,7 +18,9 @@
 - `cargo-make` (`cargo install cargo-make`)
 - [bun](https://bun.sh)
 - 以下のどれか (バックエンドは UI で切替):
-  - **API 直叩き (推奨・速い)**: [Gemini API key](https://aistudio.google.com/apikey) を発行して `GEMINI_API_KEY` を env にセット
+  - **API 直叩き (推奨・速い)**:
+    - [Gemini API key](https://aistudio.google.com/apikey) を発行して `GEMINI_API_KEY` を env にセット、または
+    - [OpenRouter API key](https://openrouter.ai/keys) を発行して `OPENROUTER_API_KEY` を env にセット (DeepSeek V4 等、好きなモデルを選べる。OpenAI / DeepSeek 直 API や Ollama 等の OpenAI 互換サーバーも `configs/kotonoha.toml` の `base_url` で OK)
   - **CLI 経由 (ゼロ設定だが起動 2-5 秒)**:
     - [Claude Code](https://docs.claude.com/en/docs/claude-code) (`claude`)
     - [Gemini CLI](https://github.com/google-gemini/gemini-cli) (`gemini`)
@@ -30,6 +32,7 @@
 cargo install kotonoha-server
 kotonoha setup-tts                 # Kokoro モデル + ボイス DL
 $env:GEMINI_API_KEY = "xxx..."     # API モード使うなら
+# $env:OPENROUTER_API_KEY = "sk-or-..."   # OpenRouter 派はこっち
 kotonoha serve
 # → http://localhost:7400 — SPA が rust-embed でバイナリに焼かれてるので
 #   フロントエンド別起動は不要

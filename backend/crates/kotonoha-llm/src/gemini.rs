@@ -8,12 +8,11 @@
 //! whose `candidates[0].content.parts[*].text` carries the next chunk.
 
 use anyhow::{Context as _, anyhow};
-use async_stream::try_stream;
-use bytes::Bytes;
-use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 
 use kotonoha_core::{ApiBackendConfig, Backend, CompletionRequest, ReplyStream, Turn};
+
+use crate::sse::{parse_text_stream, snippet};
 
 const ENDPOINT_BASE: &str = "https://generativelanguage.googleapis.com/v1beta/models";
 
@@ -34,8 +33,12 @@ impl GeminiBackend {
                 cfg.api_key_env
             )
         })?;
+        // `read_timeout` (per-read inactivity) rather than `timeout`
+        // (whole-request cap) — a long teacher reply may legitimately
+        // stream for minutes as long as chunks keep arriving.
         let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(120))
+            .connect_timeout(std::time::Duration::from_secs(30))
+            .read_timeout(std::time::Duration::from_secs(120))
             .build()?;
         Ok(Self {
             client,
@@ -129,98 +132,17 @@ impl Backend for GeminiBackend {
         );
 
         if !status.is_success() {
+            // Truncated: this error travels to the browser over the
+            // WebSocket — never forward an unbounded provider body.
             let text = resp.text().await.unwrap_or_default();
-            return Err(anyhow!("gemini http {status}: {text}"));
+            return Err(anyhow!("gemini http {status}: {}", snippet(&text, 500)));
         }
 
-        let mut byte_stream = resp.bytes_stream();
-        let stream = try_stream! {
-            let mut buffer: Vec<u8> = Vec::new();
-            let mut total_bytes: usize = 0;
-            let mut yielded: usize = 0;
-            let mut first_chunk_at: Option<std::time::Duration> = None;
-            let mut first_yield_at: Option<std::time::Duration> = None;
-            while let Some(chunk) = byte_stream.next().await {
-                let chunk: Bytes = chunk.context("stream chunk")?;
-                if first_chunk_at.is_none() {
-                    first_chunk_at = Some(t_send.elapsed());
-                }
-                total_bytes += chunk.len();
-                buffer.extend_from_slice(&chunk);
-                // Process any complete SSE events in the buffer.  SSE
-                // delimiter is a blank line (`\n\n` per spec, but some
-                // proxies inject `\r\n\r\n` — accept both).
-                while let Some((pos, sep_len)) = find_event_boundary(&buffer) {
-                    let event_bytes = buffer.drain(..pos + sep_len).collect::<Vec<u8>>();
-                    let event = String::from_utf8_lossy(&event_bytes);
-                    for line in event.lines() {
-                        let Some(payload) = line.strip_prefix("data:") else { continue; };
-                        let payload = payload.trim();
-                        if payload.is_empty() || payload == "[DONE]" { continue; }
-                        match serde_json::from_str::<GeminiStreamEvent>(payload) {
-                            Ok(ev) => {
-                                if let Some(text) = ev.first_text() {
-                                    if first_yield_at.is_none() {
-                                        first_yield_at = Some(t_send.elapsed());
-                                    }
-                                    yielded += text.len();
-                                    yield text;
-                                }
-                            }
-                            Err(e) => {
-                                tracing::warn!(target: "kotonoha::llm",
-                                    "gemini parse skipped: {e} on `{payload}`");
-                            }
-                        }
-                    }
-                }
-            }
-            // Tail flush — final event may not end with a blank line.
-            if !buffer.is_empty() {
-                let event = String::from_utf8_lossy(&buffer);
-                for line in event.lines() {
-                    let Some(payload) = line.strip_prefix("data:") else { continue; };
-                    let payload = payload.trim();
-                    if payload.is_empty() || payload == "[DONE]" { continue; }
-                    if let Ok(ev) = serde_json::from_str::<GeminiStreamEvent>(payload) {
-                        if let Some(text) = ev.first_text() {
-                            yielded += text.len();
-                            yield text;
-                        }
-                    }
-                }
-            }
-            let total = t_send.elapsed();
-            tracing::info!(
-                target: "kotonoha::llm",
-                "gemini stream done: total={:.0}ms ttfb={:.0}ms ttft={:.0}ms bytes={total_bytes} chars={yielded}",
-                total.as_secs_f64() * 1000.0,
-                first_chunk_at.map(|d| d.as_secs_f64() * 1000.0).unwrap_or(0.0),
-                first_yield_at.map(|d| d.as_secs_f64() * 1000.0).unwrap_or(0.0),
-            );
-            if yielded == 0 {
-                // No text came through.  Most likely either the model
-                // name is wrong or the body was a non-streaming
-                // response.  Surface this rather than letting the chat
-                // sit silent.
-                Err(anyhow!(
-                    "gemini stream produced no text ({total_bytes} bytes received). \
-                     Check model name and that the endpoint returned SSE."
-                ))?;
-            }
-        };
+        let stream = parse_text_stream("gemini".into(), t_send, resp.bytes_stream(), |payload| {
+            serde_json::from_str::<GeminiStreamEvent>(payload).map(|ev| ev.first_text())
+        });
         Ok(Box::pin(stream))
     }
-}
-
-/// Find the next SSE event boundary in `buf` and return `(position,
-/// separator_length)`.  Accepts both `\n\n` (spec) and `\r\n\r\n`
-/// (some intermediaries).
-fn find_event_boundary(buf: &[u8]) -> Option<(usize, usize)> {
-    if let Some(p) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
-        return Some((p, 4));
-    }
-    buf.windows(2).position(|w| w == b"\n\n").map(|p| (p, 2))
 }
 
 // ---- Gemini request/response shapes ----------------------------------

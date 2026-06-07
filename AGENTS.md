@@ -238,8 +238,10 @@ teacher. The backend offers two flavours of LLM routing:
 - **CLI**: spawn `claude` / `gemini` / `codex` per turn — zero
   config, but pays a 2-5s Node.js cold start every turn.
 - **API**: hit the provider's HTTP API directly via
-  `kotonoha-llm` (currently Gemini; Anthropic / OpenAI in scope) —
-  streaming, no cold start, needs an API key in env.
+  `kotonoha-llm` (Gemini, plus any OpenAI-compatible Chat
+  Completions server: OpenRouter / OpenAI / DeepSeek by provider
+  key, others via `base_url`; Anthropic in scope) — streaming, no
+  cold start, needs an API key in env.
 
 Voice in is browser Web Speech API. Voice out is either the
 browser's `speechSynthesis` or local Kokoro 82M ONNX through
@@ -251,7 +253,7 @@ browser's `speechSynthesis` or local Kokoro 82M ONNX through
 kotonoha/
 ├── backend/crates/
 │   ├── kotonoha-core/      # config + lesson loader + Backend trait + CliBackend
-│   ├── kotonoha-llm/       # HTTP API providers (Gemini today)
+│   ├── kotonoha-llm/       # HTTP API providers (Gemini + OpenAI-compatible)
 │   ├── kotonoha-server/    # axum HTTP + WebSocket + /api/tts + /api/info
 │   └── kotonoha-tts/       # Kokoro 82M ONNX wrapper (pure-Rust phonemizer)
 ├── frontend/               # Vite + React + TS + Tailwind + three-vrm (bun)
