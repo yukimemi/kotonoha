@@ -175,7 +175,7 @@ pub struct ApiBackendConfig {
     pub provider: String,
     /// Model identifier passed to the provider.  Examples:
     ///   - google:     `"gemini-2.5-flash"`, `"gemini-2.5-pro"`
-    ///   - openrouter: `"deepseek/deepseek-chat"` (any OpenRouter slug)
+    ///   - openrouter: `"deepseek/deepseek-v4-flash"` (any OpenRouter slug)
     ///   - openai:     `"gpt-4o-mini"`
     ///   - deepseek:   `"deepseek-chat"`
     pub model: String,

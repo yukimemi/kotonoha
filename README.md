@@ -32,6 +32,7 @@
 cargo install kotonoha-server
 kotonoha setup-tts                 # Kokoro モデル + ボイス DL
 $env:GEMINI_API_KEY = "xxx..."     # API モード使うなら
+# $env:OPENROUTER_API_KEY = "sk-or-..."   # OpenRouter 派はこっち
 kotonoha serve
 # → http://localhost:7400 — SPA が rust-embed でバイナリに焼かれてるので
 #   フロントエンド別起動は不要

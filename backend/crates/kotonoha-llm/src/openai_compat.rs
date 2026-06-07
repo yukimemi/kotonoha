@@ -12,14 +12,11 @@
 //! by a literal `data: [DONE]` event.
 
 use anyhow::{Context as _, anyhow};
-use async_stream::try_stream;
-use bytes::Bytes;
-use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 
 use kotonoha_core::{ApiBackendConfig, Backend, CompletionRequest, ReplyStream, Turn};
 
-use crate::sse::find_event_boundary;
+use crate::sse::{parse_text_stream, snippet};
 
 /// Default Chat Completions base URL for each known provider key.
 /// `base_url` in the config overrides these; an unknown provider key
@@ -63,8 +60,12 @@ impl OpenAiCompatBackend {
                     cfg.provider
                 )
             })?;
+        // `read_timeout` (per-read inactivity) rather than `timeout`
+        // (whole-request cap) — a long teacher reply may legitimately
+        // stream for minutes as long as chunks keep arriving.
         let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(120))
+            .connect_timeout(std::time::Duration::from_secs(30))
+            .read_timeout(std::time::Duration::from_secs(120))
             .build()?;
         Ok(Self {
             client,
@@ -161,87 +162,16 @@ impl Backend for OpenAiCompatBackend {
         );
 
         if !status.is_success() {
+            // Truncated: this error travels to the browser over the
+            // WebSocket, and an arbitrary `base_url` endpoint could
+            // echo anything (even reflected request headers) back.
             let text = resp.text().await.unwrap_or_default();
-            return Err(anyhow!("{provider} http {status}: {text}"));
+            return Err(anyhow!("{provider} http {status}: {}", snippet(&text, 500)));
         }
 
-        let mut byte_stream = resp.bytes_stream();
-        let stream = try_stream! {
-            let mut buffer: Vec<u8> = Vec::new();
-            let mut total_bytes: usize = 0;
-            let mut yielded: usize = 0;
-            let mut first_chunk_at: Option<std::time::Duration> = None;
-            let mut first_yield_at: Option<std::time::Duration> = None;
-            while let Some(chunk) = byte_stream.next().await {
-                let chunk: Bytes = chunk.context("stream chunk")?;
-                if first_chunk_at.is_none() {
-                    first_chunk_at = Some(t_send.elapsed());
-                }
-                total_bytes += chunk.len();
-                buffer.extend_from_slice(&chunk);
-                // Process any complete SSE events in the buffer.  Lines
-                // not starting with `data:` (OpenRouter's `: PROCESSING`
-                // keepalive comments, `event:` fields) fall through the
-                // strip_prefix and are skipped.
-                while let Some((pos, sep_len)) = find_event_boundary(&buffer) {
-                    let event_bytes = buffer.drain(..pos + sep_len).collect::<Vec<u8>>();
-                    let event = String::from_utf8_lossy(&event_bytes);
-                    for line in event.lines() {
-                        let Some(payload) = line.strip_prefix("data:") else { continue; };
-                        let payload = payload.trim();
-                        if payload.is_empty() || payload == "[DONE]" { continue; }
-                        match serde_json::from_str::<ChatStreamEvent>(payload) {
-                            Ok(ev) => {
-                                if let Some(text) = ev.first_text() {
-                                    if first_yield_at.is_none() {
-                                        first_yield_at = Some(t_send.elapsed());
-                                    }
-                                    yielded += text.len();
-                                    yield text;
-                                }
-                            }
-                            Err(e) => {
-                                tracing::warn!(target: "kotonoha::llm",
-                                    "{provider} parse skipped: {e} on `{payload}`");
-                            }
-                        }
-                    }
-                }
-            }
-            // Tail flush — final event may not end with a blank line.
-            if !buffer.is_empty() {
-                let event = String::from_utf8_lossy(&buffer);
-                for line in event.lines() {
-                    let Some(payload) = line.strip_prefix("data:") else { continue; };
-                    let payload = payload.trim();
-                    if payload.is_empty() || payload == "[DONE]" { continue; }
-                    if let Ok(ev) = serde_json::from_str::<ChatStreamEvent>(payload) {
-                        if let Some(text) = ev.first_text() {
-                            yielded += text.len();
-                            yield text;
-                        }
-                    }
-                }
-            }
-            let total = t_send.elapsed();
-            tracing::info!(
-                target: "kotonoha::llm",
-                "{provider} stream done: total={:.0}ms ttfb={:.0}ms ttft={:.0}ms bytes={total_bytes} chars={yielded}",
-                total.as_secs_f64() * 1000.0,
-                first_chunk_at.map(|d| d.as_secs_f64() * 1000.0).unwrap_or(0.0),
-                first_yield_at.map(|d| d.as_secs_f64() * 1000.0).unwrap_or(0.0),
-            );
-            if yielded == 0 {
-                // No text came through.  Most likely either the model
-                // name is wrong or the body was a non-streaming
-                // response.  Surface this rather than letting the chat
-                // sit silent.
-                Err(anyhow!(
-                    "{provider} stream produced no text ({total_bytes} bytes received). \
-                     Check model name and that the endpoint returned SSE."
-                ))?;
-            }
-        };
+        let stream = parse_text_stream(provider, t_send, resp.bytes_stream(), |payload| {
+            serde_json::from_str::<ChatStreamEvent>(payload).map(|ev| ev.first_text())
+        });
         Ok(Box::pin(stream))
     }
 }

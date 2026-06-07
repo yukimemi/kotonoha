@@ -253,7 +253,7 @@ browser's `speechSynthesis` or local Kokoro 82M ONNX through
 kotonoha/
 ├── backend/crates/
 │   ├── kotonoha-core/      # config + lesson loader + Backend trait + CliBackend
-│   ├── kotonoha-llm/       # HTTP API providers (Gemini today)
+│   ├── kotonoha-llm/       # HTTP API providers (Gemini + OpenAI-compatible)
 │   ├── kotonoha-server/    # axum HTTP + WebSocket + /api/tts + /api/info
 │   └── kotonoha-tts/       # Kokoro 82M ONNX wrapper (pure-Rust phonemizer)
 ├── frontend/               # Vite + React + TS + Tailwind + three-vrm (bun)
