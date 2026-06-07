@@ -15,6 +15,8 @@ use serde::{Deserialize, Serialize};
 
 use kotonoha_core::{ApiBackendConfig, Backend, CompletionRequest, ReplyStream, Turn};
 
+use crate::sse::find_event_boundary;
+
 const ENDPOINT_BASE: &str = "https://generativelanguage.googleapis.com/v1beta/models";
 
 #[derive(Debug, Clone)]
@@ -211,16 +213,6 @@ impl Backend for GeminiBackend {
         };
         Ok(Box::pin(stream))
     }
-}
-
-/// Find the next SSE event boundary in `buf` and return `(position,
-/// separator_length)`.  Accepts both `\n\n` (spec) and `\r\n\r\n`
-/// (some intermediaries).
-fn find_event_boundary(buf: &[u8]) -> Option<(usize, usize)> {
-    if let Some(p) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
-        return Some((p, 4));
-    }
-    buf.windows(2).position(|w| w == b"\n\n").map(|p| (p, 2))
 }
 
 // ---- Gemini request/response shapes ----------------------------------

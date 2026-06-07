@@ -169,13 +169,15 @@ pub struct CliBackendConfig {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ApiBackendConfig {
-    /// Provider key — currently `"google"` (Gemini).  Future:
-    /// `"anthropic"` / `"openai"`.
+    /// Provider key — `"google"` (Gemini), or any OpenAI-compatible
+    /// Chat Completions provider: `"openrouter"`, `"openai"`,
+    /// `"deepseek"`.  Future: `"anthropic"`.
     pub provider: String,
     /// Model identifier passed to the provider.  Examples:
-    ///   - google:    `"gemini-2.5-flash"`, `"gemini-2.5-pro"`
-    ///   - anthropic: `"claude-sonnet-4-6"`
-    ///   - openai:    `"gpt-4o-mini"`
+    ///   - google:     `"gemini-2.5-flash"`, `"gemini-2.5-pro"`
+    ///   - openrouter: `"deepseek/deepseek-chat"` (any OpenRouter slug)
+    ///   - openai:     `"gpt-4o-mini"`
+    ///   - deepseek:   `"deepseek-chat"`
     pub model: String,
     /// Name of the env var holding the API key (e.g. `"GEMINI_API_KEY"`).
     /// Resolving at request time means a missing key only breaks API
@@ -184,6 +186,12 @@ pub struct ApiBackendConfig {
     /// Optional per-call temperature (provider default if omitted).
     #[serde(default)]
     pub temperature: Option<f32>,
+    /// Optional API base URL override.  Mainly for OpenAI-compatible
+    /// servers the provider key doesn't already know about (Ollama,
+    /// LM Studio, a corporate proxy, ...).  Known providers fill in
+    /// their default, so this is rarely needed.
+    #[serde(default)]
+    pub base_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

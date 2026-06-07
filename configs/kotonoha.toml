@@ -129,6 +129,25 @@ model = "gemini-3.5-pro"
 api_key_env = "GEMINI_API_KEY"
 temperature = 0.7
 
+# OpenRouter — one key, any model on https://openrouter.ai/models.
+# `provider = "openrouter"` speaks the OpenAI Chat Completions dialect;
+# the same code path also handles `provider = "openai"` / `"deepseek"`
+# (direct), or any other OpenAI-compatible server via `base_url`
+# (Ollama, LM Studio, vLLM, ...).
+#
+# DeepSeek V4 Flash is dirt-cheap (~$0.10/M input tokens as of
+# June 2026) and plenty for short conversation-practice turns.
+# Swap to `deepseek/deepseek-v4-pro` for noticeably better English
+# nuance at ~4x the (still tiny) price.
+#
+# Get a key: https://openrouter.ai/keys → set OPENROUTER_API_KEY.
+
+[backend.deepseek-v4]
+provider = "openrouter"
+model = "deepseek/deepseek-v4-flash"
+api_key_env = "OPENROUTER_API_KEY"
+temperature = 0.7
+
 # ---- lessons -------------------------------------------------------
 #
 # `extends` pulls in a file under configs/lessons/.  The server reads
