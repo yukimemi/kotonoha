@@ -29,10 +29,16 @@ use kotonoha_core::AutoUpdateMode;
 const BIN_NAME: &str = "kotonoha";
 const OWNER: &str = "yukimemi";
 const REPO: &str = "kotonoha";
+/// The crates.io package name (`kotonoha-server`) — differs from
+/// [`BIN_NAME`], and kaishin's `cargo install` fallback needs the
+/// package, not the binary. Resolved at compile time so it can never
+/// drift from `Cargo.toml`.
+const CRATE_NAME: &str = env!("CARGO_PKG_NAME");
 
 /// Build the `KaishinOptions` describing this binary.
 pub fn kaishin_opts() -> kaishin::KaishinOptions {
     kaishin::KaishinOptions::new(OWNER, REPO, BIN_NAME, env!("CARGO_PKG_VERSION"))
+        .crate_name(CRATE_NAME)
 }
 
 /// Resolve the transient update-check state file path:
@@ -223,6 +229,9 @@ mod tests {
         assert_eq!(opts.repo, "kotonoha");
         assert_eq!(opts.bin_name, "kotonoha");
         assert_eq!(opts.current_version, env!("CARGO_PKG_VERSION"));
+        // The cargo-install fallback needs the crates.io package name,
+        // which differs from the binary name.
+        assert_eq!(opts.crate_name.as_deref(), Some("kotonoha-server"));
     }
 
     #[test]
