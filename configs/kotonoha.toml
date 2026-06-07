@@ -169,3 +169,13 @@ extends = "lessons/junior-high.toml"
 # what was actually heard.
 [lesson.shadowing]
 extends = "lessons/shadowing.toml"
+
+# Math quiz — Japanese-language lessons (not English practice).
+# All-Japanese turns route to VOICEVOX for TTS automatically.
+# NOTE: browser STT is pinned to en-US (web/src/voice/speech.ts),
+# so answer by typing, not voice, for now.
+[lesson.math-grade4]
+extends = "lessons/math-grade4.toml"
+
+[lesson.math-grade5]
+extends = "lessons/math-grade5.toml"
