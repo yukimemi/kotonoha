@@ -35,7 +35,7 @@ uuid               = { version = "1.23.2", features = ["v4", "serde"] }
 async-stream       = "0.3.6"
 async-trait        = "0.1.89"
 hound              = "3.5.1"
-which              = "8.0.2"
+which              = "8.0.3"
 reqwest            = { version = "0.13.4", features = ["json", "stream", "rustls"], default-features = false }
 bytes              = "1.11.1"
 rust-embed         = "8.11.0"
