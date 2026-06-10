@@ -73,7 +73,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - target: x86_64-unknown-linux-gnu
+          - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
           - target: x86_64-pc-windows-msvc
             os: windows-latest
@@ -96,6 +96,15 @@ jobs:
       # build step is the belt-and-suspenders.
       - uses: Swatinem/rust-cache@v2
         if: ${{ !contains(matrix.target, 'windows') }}
+
+      # musl-targeted builds link against musl libc, so the runner needs
+      # the musl cross toolchain (`musl-gcc`) before `cargo build` —
+      # crates with a C dependency (or any `cc`/`build.rs` step) fail
+      # to link without it. Static musl binaries avoid the glibc-version
+      # coupling a `*-linux-gnu` build carries, so they run on more distros.
+      - name: install musl toolchain
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: sudo apt-get install -y musl-tools
 
       # rust-embed bakes web/dist/ into the binary at compile time, so any
       # workspace that embeds an SPA must build the frontend (via its
