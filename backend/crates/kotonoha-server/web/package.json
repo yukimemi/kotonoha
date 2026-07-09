@@ -10,7 +10,7 @@
     "preview": "node node_modules/vite/bin/vite.js preview"
   },
   "dependencies": {
-    "@pixiv/three-vrm": "^3.5.4",
+    "@pixiv/three-vrm": "^3.5.5",
     "@pixiv/three-vrm-animation": "^3.5.4",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
