@@ -31,7 +31,7 @@ clap               = { version = "4.6.2", features = ["derive", "env"] }
 axum               = { version = "0.8.9", features = ["ws", "macros"] }
 tower-http         = { version = "0.7.0", features = ["cors", "trace", "fs"] }
 futures            = "0.3.32"
-uuid               = { version = "1.23.5", features = ["v4", "serde"] }
+uuid               = { version = "1.24.0", features = ["v4", "serde"] }
 async-stream       = "0.3.6"
 async-trait        = "0.1.89"
 hound              = "3.5.1"
