@@ -75,6 +75,17 @@ jobs:
         include:
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
+          # ARM64 linux, built NATIVELY on GitHub's arm64 runner
+          # (`ubuntu-24.04-arm`, free for public repos) rather than
+          # cross-compiled — no cross linker/sysroot juggling, and any
+          # crate with a `cc`/`build.rs` step builds the same way it
+          # does on x86_64. This is the target Oracle Cloud's
+          # always-free Ampere A1 VMs (and AWS Graviton, Raspberry Pi
+          # OS 64-bit, …) run.
+          # NOTE: there is no `ubuntu-latest-arm` label — the arm64
+          # runner images are versioned only (`ubuntu-24.04-arm`).
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-24.04-arm
           - target: x86_64-pc-windows-msvc
             os: windows-latest
           # Intel Mac (x86_64-apple-darwin) dropped — Apple Silicon only.
@@ -102,9 +113,40 @@ jobs:
       # crates with a C dependency (or any `cc`/`build.rs` step) fail
       # to link without it. Static musl binaries avoid the glibc-version
       # coupling a `*-linux-gnu` build carries, so they run on more distros.
+      # Matched by substring so BOTH musl targets (x86_64 on
+      # `ubuntu-latest`, aarch64 on `ubuntu-24.04-arm`) get the
+      # toolchain — each runner's `musl-tools` is native to its own
+      # arch, so no cross setup is needed on either.
+      #
+      # The aarch64 entry needs one extra nudge. `cc-rs` picks the C
+      # compiler from a per-target prefix table, and the two musl
+      # targets are NOT handled symmetrically there:
+      #   x86_64-unknown-linux-musl => find_working_gnu_prefix(
+      #                                 ["x86_64-linux-musl", "musl"])
+      #   aarch64-unknown-linux-musl => Some("aarch64-linux-musl")
+      # The x86_64 arm probes the filesystem and lands on `musl-gcc`
+      # (what musl-tools actually installs), with a fallback to plain
+      # `cc` when nothing matches. The aarch64 arm returns its prefix
+      # UNCONDITIONALLY — no existence check, no fallback — so any
+      # crate with a `cc`/`build.rs` step shells out to
+      # `aarch64-linux-musl-gcc`, which musl-tools does not ship, and
+      # the build script dies on command-not-found. `CC_<target>` is
+      # consulted before the prefix table, so pointing it at the
+      # native `musl-gcc` restores the x86_64 behaviour. `AR_<target>`
+      # goes along for the ride: binutils `ar` is arch-agnostic here
+      # and the prefixed name is likewise absent.
       - name: install musl toolchain
-        if: matrix.target == 'x86_64-unknown-linux-musl'
-        run: sudo apt-get install -y musl-tools
+        if: contains(matrix.target, 'linux-musl')
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y musl-tools
+          if [[ "$TARGET" == aarch64-* ]]; then
+            echo "CC_aarch64_unknown_linux_musl=musl-gcc" >> "$GITHUB_ENV"
+            echo "AR_aarch64_unknown_linux_musl=ar" >> "$GITHUB_ENV"
+          fi
 
       # rust-embed bakes web/dist/ into the binary at compile time, so any
       # workspace that embeds an SPA must build the frontend (via its
@@ -121,6 +163,14 @@ jobs:
           fi
       - uses: oven-sh/setup-bun@v2
         if: steps.frontend.outputs.present == 'true'
+      # On the arm64 linux runner this step is SLOW (minutes, not
+      # seconds) but correct: upstream cargo-make ships no
+      # aarch64-unknown-linux-* prebuilt (only x86_64 linux, both
+      # macOS arches, x86_64 windows), so install-action falls back to
+      # building it from source. Only workspaces with an embedded SPA
+      # pay it; if that ever bites, pin a prebuilt-carrying tool or
+      # drop the frontend build to an x86_64-only job that uploads
+      # web/dist/ as an artifact.
       - uses: taiki-e/install-action@v2
         if: steps.frontend.outputs.present == 'true'
         with:
