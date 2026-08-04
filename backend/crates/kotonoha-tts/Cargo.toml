@@ -29,4 +29,4 @@ tracing     = { workspace = true }
 # on Windows and adds a 60s+ build, plus the runtime depends on a
 # native DLL.  `misaki-lean` uses a Rust-only G2P that's good enough
 # for an English-speaking-with-occasional-Japanese teacher scenario.
-kokoro-en = { version = "0.1.4", default-features = false, features = ["misaki-lean"] }
+kokoro-en = { version = "0.1.5", default-features = false, features = ["misaki-lean"] }
