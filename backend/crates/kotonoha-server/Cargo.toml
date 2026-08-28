@@ -38,7 +38,7 @@ axum               = { workspace = true }
 clap               = { workspace = true }
 dirs               = "6"
 futures            = { workspace = true }
-kaishin            = "0.6.4"
+kaishin            = "0.7.1"
 indicatif          = { workspace = true }
 mime_guess         = { workspace = true }
 reqwest            = { workspace = true }
