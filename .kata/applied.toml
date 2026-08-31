@@ -1,14 +1,14 @@
 preset = "github.com/yukimemi/pj-presets:rust-workspace"
-applied_at = "2026-08-30T03:30:17.850055281Z"
+applied_at = "2026-08-31T03:33:31.636422787Z"
 
 [[templates]]
 source = "github.com/yukimemi/pj-base"
-rev = "10cd49c09b95af8add4daf71c5151835821cb670"
+rev = "b205d49d8676a2d3b78efa020749b7f012921159"
 version = "0.18.0"
 
 [[templates]]
 source = "github.com/yukimemi/pj-rust"
-rev = "e9ed48b62025bbe80e1d35cdccca11ec2ee88d3e"
+rev = "148d044fd11530b1f92bf0c5a7f9563049710a14"
 version = "0.8.1"
 
 [[templates]]
@@ -21,6 +21,9 @@ once_applied = true
 
 [files.".claude/skills/renri/SKILL.md"]
 once_applied = true
+
+[files.".editorconfig"]
+content_hash = "f50ceb17e736856f0a6d3ddbcbcc251e7df3d7c1542dd143dd0d228b834697e0"
 
 [files.".gemini/settings.json"]
 content_hash = "486c974de88903113ed99b4e643432b7050e88f1031276f5263e8da7b43fe11e"
@@ -35,13 +38,13 @@ content_hash = "0ac5ed2847ab6e1041e34209dcc2396a582722ea9537d03bd950e1db1851a4b7
 content_hash = "4e2735f40c2ae61014810159a2458da2edc1646589f5f65d9f2f3d099366c9a8"
 
 [files.".github/workflows/ci.yml"]
-content_hash = "3e2b071337a00167805781cc078cb08e1bf05e67be2e0bb226eeb11586396cc0"
+content_hash = "20364f1638365fea76484f555989dd939043a7e2609f3eb926ae665d07666490"
 
 [files.".github/workflows/claude-review.yml"]
 content_hash = "4a8e47aabb3cdf2a59030d5194467022f0efb53bb1819d4495752020d10be773"
 
 [files.".github/workflows/claude.yml"]
-content_hash = "c83b52d5f483fdec494028b932facf98018500ce757718cc2e3703328688f5ad"
+content_hash = "7bb6c538ec5c2688e01b54e983232fa99f65e24ee16172c4270341345cbdac34"
 
 [files.".github/workflows/kata-apply.yml"]
 content_hash = "7000353151b01b5d14cb8f56e314b1a25b020e22bdf5842dcaf5686efb59facb"
@@ -53,11 +56,11 @@ content_hash = "4cba2edfa14ea128ecdfaeba7230c2ddcf68f94b89be6bd3227ce93e0e625652
 content_hash = "4bebd1c3417c33f9d1c51f011694f6d82b098bbb1a5a102ba56e97ab01a866ef"
 
 [files.".kata/vars.toml"]
-content_hash = "8e573305bc9b45b40e4c4c24c0da7728771a12d81c4c1631d6e35f25a189cf84"
+content_hash = "84daa3d716a28510f2dba69e3c95eb43936d89916df8f16c39b60d0473f9e818"
 once_applied = true
 
 [files."AGENTS.md"]
-content_hash = "042925929eae8554d57db83e47b8837b5ee32e798edc44a7952ed31a74f56220"
+content_hash = "a3060bcf43a044df9756231020be550decd2c4eddab6b0517e3901685a8066cc"
 
 [files."CLAUDE.md"]
 content_hash = "a76b3af252969b8120128d7ce44f2b6cfdcf88c7420ee00675732f542d047529"
