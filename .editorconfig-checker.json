@@ -1,0 +1,4 @@
+{
+  "$comment": "editorconfig-checker config. The .fbx animation assets under web/public/talk-gestures/ are binary; ec does not detect that on its own and reports every one of them twice (line endings + 'binary instead of utf-8'), which is 30 of the repo's findings and the reason the editorconfig CI job cannot go green. Excluding them by extension is the fix — a .gitattributes 'binary' marking does not reach ec.",
+  "Exclude": ["\\.fbx$"]
+}
