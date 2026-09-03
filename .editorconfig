@@ -1,3 +1,17 @@
+# This project's own notes — outside every kata marker, and `.editorconfig` is
+# `once_applied` in `.kata/applied.toml`, so `kata apply` leaves them alone.
+# Comments only up here: a section before pj-base's `root = true` below would
+# push that declaration out of the preamble, where EditorConfig ignores it —
+# the checker would then walk up and pick up a parent `.editorconfig`.
+#
+# Deliberately no indentation rules: pj-base dropped `indent_style` /
+# `indent_size` / `trim_trailing_whitespace` / `insert_final_newline` on
+# purpose (see its block below) because a formatter already owns those bytes,
+# and this repo restated them here from before the templates were adopted.
+# rustfmt owns Rust indentation and CI enforces it via `cargo fmt --check`;
+# comment/prose alignment (continuations under `- ` or a text column) is
+# 3 columns wide and can never satisfy an indent-width rule.
+
 # kata:editorconfig:base:begin
 # kata-managed universal EditorConfig rules (yukimemi/pj-base). Scope is
 # deliberately narrow: **encoding and line endings only**. Companion to
