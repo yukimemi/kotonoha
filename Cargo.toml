@@ -36,7 +36,7 @@ async-stream       = "0.3.6"
 async-trait        = "0.1.92"
 hound              = "3.5.1"
 which              = "8.0.6"
-reqwest            = { version = "0.13.4", features = ["json", "stream", "rustls"], default-features = false }
+reqwest            = { version = "0.13.5", features = ["json", "stream", "rustls"], default-features = false }
 bytes              = "1.12.1"
 rust-embed         = "8.12.0"
 mime_guess         = "2.0.5"
