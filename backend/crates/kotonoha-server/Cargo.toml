@@ -36,7 +36,7 @@ kotonoha-tts  = { path = "../kotonoha-tts",  version = "0.4.1" }
 anyhow             = { workspace = true }
 axum               = { workspace = true }
 clap               = { workspace = true }
-dirs               = "6"
+dirs               = "7.0.0"
 futures            = { workspace = true }
 kaishin            = "0.7.3"
 indicatif          = { workspace = true }
