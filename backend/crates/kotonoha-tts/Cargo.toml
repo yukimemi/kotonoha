@@ -17,7 +17,7 @@ hound       = { workspace = true }
 # c_api/lib/ + models/vvms/ + onnxruntime/lib/ asset layout that
 # the current downloader produces (voicevox-dyn 0.3 still expects
 # the legacy flat layout next to the exe).
-libloading  = "0.9.0"
+libloading  = "0.9.1"
 reqwest     = { workspace = true }
 serde       = { workspace = true }
 serde_json  = { workspace = true }
